@@ -55,6 +55,7 @@
     "isBlob": false,
     "isBoolean": false,
     "isPromiseLike": false,
+    "hasCustomToString": false,
     "trim": false,
     "escapeForRegexp": false,
     "isElement": false,
@@ -161,9 +162,6 @@
 
     /* ng/compile.js */
     "directiveNormalize": false,
-
-    /* ng/parse.js */
-    "setter": false,
 
     /* ng/directive/directives.js */
     "ngDirective": false,

@@ -180,6 +180,47 @@ describe('ngOptions', function() {
   });
 
 
+  it('should not include properties with non-numeric keys in array-like collections when using array syntax', function() {
+    createSelect({
+      'ng-model':'selected',
+      'ng-options':'value for value in values'
+    });
+
+    scope.$apply(function() {
+      scope.values = { 0: 'X', 1: 'Y', 2: 'Z', 'a': 'A', length: 3};
+      scope.selected = scope.values[1];
+    });
+
+    var options = element.find('option');
+    expect(options.length).toEqual(3);
+    expect(options.eq(0)).toEqualOption('X');
+    expect(options.eq(1)).toEqualOption('Y');
+    expect(options.eq(2)).toEqualOption('Z');
+
+  });
+
+
+  it('should include properties with non-numeric keys in array-like collections when using object syntax', function() {
+    createSelect({
+      'ng-model':'selected',
+      'ng-options':'value for (key, value) in values'
+    });
+
+    scope.$apply(function() {
+      scope.values = { 0: 'X', 1: 'Y', 2: 'Z', 'a': 'A', length: 3};
+      scope.selected = scope.values[1];
+    });
+
+    var options = element.find('option');
+    expect(options.length).toEqual(5);
+    expect(options.eq(0)).toEqualOption('X');
+    expect(options.eq(1)).toEqualOption('Y');
+    expect(options.eq(2)).toEqualOption('Z');
+    expect(options.eq(3)).toEqualOption('A');
+    expect(options.eq(4)).toEqualOption(3);
+  });
+
+
   it('should render an object', function() {
     createSelect({
       'ng-model': 'selected',
@@ -407,6 +448,43 @@ describe('ngOptions', function() {
   });
 
 
+  it('should not watch non-numeric array properties', function() {
+    createSelect({
+      'ng-options': 'value as createLabel(value) for value in array',
+      'ng-model': 'selected'
+    });
+    scope.createLabel = jasmine.createSpy('createLabel').andCallFake(function(value) { return value; });
+    scope.array = ['a', 'b', 'c'];
+    scope.array.$$private = 'do not watch';
+    scope.array.$property = 'do not watch';
+    scope.array.other = 'do not watch';
+    scope.array.fn = function() {};
+    scope.selected = 'b';
+    scope.$digest();
+
+    expect(scope.createLabel).toHaveBeenCalledWith('a');
+    expect(scope.createLabel).toHaveBeenCalledWith('b');
+    expect(scope.createLabel).toHaveBeenCalledWith('c');
+    expect(scope.createLabel).not.toHaveBeenCalledWith('do not watch');
+    expect(scope.createLabel).not.toHaveBeenCalledWith(jasmine.any(Function));
+  });
+
+
+  it('should not watch object properties that start with $ or $$', function() {
+    createSelect({
+      'ng-options': 'key as createLabel(key) for (key, value) in object',
+      'ng-model': 'selected'
+    });
+    scope.createLabel = jasmine.createSpy('createLabel').andCallFake(function(value) { return value; });
+    scope.object = {'regularProperty': 'visible', '$$private': 'invisible', '$property': 'invisible'};
+    scope.selected = 'regularProperty';
+    scope.$digest();
+
+    expect(scope.createLabel).toHaveBeenCalledWith('regularProperty');
+    expect(scope.createLabel).not.toHaveBeenCalledWith('$$private');
+    expect(scope.createLabel).not.toHaveBeenCalledWith('$property');
+  });
+
   it('should allow expressions over multiple lines', function() {
     scope.isNotFoo = function(item) {
       return item.name !== 'Foo';
@@ -477,6 +555,30 @@ describe('ngOptions', function() {
     expect(options.eq(0).prop('label')).toEqual('A');
     expect(options.eq(1).prop('label')).toEqual('B');
     expect(options.eq(2).prop('label')).toEqual('C');
+  });
+
+
+  it('should update the label if only the property has changed', function() {
+    // ng-options="value.name for value in values"
+    // ng-model="selected"
+    createSingleSelect();
+
+    scope.$apply(function() {
+      scope.values = [{name: 'A'}, {name: 'B'}, {name: 'C'}];
+      scope.selected = scope.values[0];
+    });
+
+    var options = element.find('option');
+    expect(options.eq(0).prop('label')).toEqual('A');
+    expect(options.eq(1).prop('label')).toEqual('B');
+    expect(options.eq(2).prop('label')).toEqual('C');
+
+
+    scope.$apply('values[0].name = "X"');
+
+    options = element.find('option');
+    expect(options.eq(0).prop('label')).toEqual('X');
+
   });
 
 
@@ -776,6 +878,54 @@ describe('ngOptions', function() {
     });
 
 
+    it('should re-render if an item in an array source is added/removed', function() {
+      createSelect({
+        'ng-model': 'selected',
+        'multiple': true,
+        'ng-options': 'item.id as item.label for item in arr'
+      });
+
+      scope.$apply(function() {
+        scope.selected = [10];
+      });
+      expect(element).toEqualSelectValue([10], true);
+
+      scope.$apply(function() {
+        scope.selected.push(20);
+      });
+      expect(element).toEqualSelectValue([10, 20], true);
+
+
+      scope.$apply(function() {
+        scope.selected.shift();
+      });
+      expect(element).toEqualSelectValue([20], true);
+    });
+
+
+    it('should handle a options containing circular references', function() {
+      scope.arr[0].ref = scope.arr[0];
+      scope.selected = [scope.arr[0]];
+      createSelect({
+        'ng-model': 'selected',
+        'multiple': true,
+        'ng-options': 'item as item.label for item in arr'
+      });
+      expect(element).toEqualSelectValue([scope.arr[0]], true);
+
+      scope.$apply(function() {
+        scope.selected.push(scope.arr[1]);
+      });
+      expect(element).toEqualSelectValue([scope.arr[0], scope.arr[1]], true);
+
+
+      scope.$apply(function() {
+        scope.selected.pop();
+      });
+      expect(element).toEqualSelectValue([scope.arr[0]], true);
+    });
+
+
     it('should support single select with object source', function() {
       createSelect({
         'ng-model': 'selected',
@@ -899,10 +1049,9 @@ describe('ngOptions', function() {
 
       expect(element.val()).toEqual(['10']);
 
-      // Update the properties on the object in the selected array, rather than replacing the whole object
+      // Update the tracked property on the object in the selected array, rather than replacing the whole object
       scope.$apply(function() {
         scope.selected[0].id = 20;
-        scope.selected[0].label = 'new twenty';
       });
 
       // The value of the select should change since the id property changed
@@ -1042,7 +1191,7 @@ describe('ngOptions', function() {
       }).not.toThrow();
     });
 
-    it('should setup equality watches on ngModel changes if using trackBy', function() {
+    it('should re-render if the tracked property of the model is changed when using trackBy', function() {
 
       createSelect({
         'ng-model': 'selected',
@@ -1050,13 +1199,13 @@ describe('ngOptions', function() {
       });
 
       scope.$apply(function() {
-        scope.selected = scope.arr[0];
+        scope.selected = {id: 10, label: 'ten'};
       });
 
       spyOn(element.controller('ngModel'), '$render');
 
       scope.$apply(function() {
-        scope.selected.label = 'changed';
+        scope.arr[0].id = 20;
       });
 
       // update render due to equality watch
@@ -1064,7 +1213,27 @@ describe('ngOptions', function() {
 
     });
 
-    it('should not setup equality watches on ngModel changes if not using trackBy', function() {
+    it('should not set view value again if the tracked property of the model has not changed when using trackBy', function() {
+
+      createSelect({
+        'ng-model': 'selected',
+        'ng-options': 'item for item in arr track by item.id'
+      });
+
+      scope.$apply(function() {
+        scope.selected = {id: 10, label: 'ten'};
+      });
+
+      spyOn(element.controller('ngModel'), '$setViewValue');
+
+      scope.$apply(function() {
+        scope.arr[0] = {id: 10, label: 'ten'};
+      });
+
+      expect(element.controller('ngModel').$setViewValue).not.toHaveBeenCalled();
+    });
+
+    it('should not re-render if a property of the model is changed when not using trackBy', function() {
 
       createSelect({
         'ng-model': 'selected',
@@ -1085,6 +1254,40 @@ describe('ngOptions', function() {
       expect(element.controller('ngModel').$render).not.toHaveBeenCalled();
     });
 
+
+    it('should handle options containing circular references (single)', function() {
+      scope.arr[0].ref = scope.arr[0];
+      createSelect({
+        'ng-model': 'selected',
+        'ng-options': 'item for item in arr track by item.id'
+      });
+
+      expect(function() {
+        scope.$apply(function() {
+          scope.selected = scope.arr[0];
+        });
+      }).not.toThrow();
+    });
+
+
+    it('should handle options containing circular references (multiple)', function() {
+      scope.arr[0].ref = scope.arr[0];
+      createSelect({
+        'ng-model': 'selected',
+        'multiple': true,
+        'ng-options': 'item for item in arr track by item.id'
+      });
+
+      expect(function() {
+        scope.$apply(function() {
+          scope.selected = [scope.arr[0]];
+        });
+
+        scope.$apply(function() {
+          scope.selected.push(scope.arr[1]);
+        });
+      }).not.toThrow();
+    });
   });
 
 
@@ -1810,7 +2013,7 @@ describe('ngOptions', function() {
     });
 
 
-    it('should support biding via ngBind attribute', function() {
+    it('should support binding via ngBind attribute', function() {
       var option;
       createSingleSelect('<option value="" ng-bind="blankVal"></option>');
 
@@ -1824,6 +2027,20 @@ describe('ngOptions', function() {
       option = element.find('option').eq(0);
       expect(option.val()).toBe('');
       expect(option.text()).toBe('is blank');
+    });
+
+    it('should support option without a value attribute', function() {
+      createSingleSelect('<option>--select--</option>');
+      scope.$apply(function() {
+        scope.values = [{name: 'A'}, {name: 'B'}, {name: 'C'}];
+      });
+
+      var options = element.find('option');
+
+      expect(options.eq(0)).toEqualUnknownOption();
+      expect(options.eq(1)).toEqualOption(scope.values[0], 'A');
+      expect(options.eq(2)).toEqualOption(scope.values[1], 'B');
+      expect(options.eq(3)).toEqualOption(scope.values[2], 'C');
     });
 
 
@@ -1854,6 +2071,18 @@ describe('ngOptions', function() {
       scope.$digest();
       // ensure the option has not changed following the digest
       expect(element[0].selectedIndex).toEqual(0);
+    });
+
+
+    it('should be selectable if select is multiple', function() {
+      createMultiSelect(true);
+
+      // select the empty option
+      setSelectValue(element, 0);
+
+      // ensure selection and correct binding
+      expect(element[0].selectedIndex).toEqual(0);
+      expect(scope.selected).toEqual([]);
     });
   });
 

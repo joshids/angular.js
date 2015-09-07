@@ -230,13 +230,16 @@ describe('$http', function() {
           });
         });
         inject(function($http, $httpBackend, $rootScope) {
-          var config = { method: 'get', url: '/url', headers: { foo: 'bar'} };
+          var config = { headers: { foo: 'bar'} };
+          var configCopy = angular.copy(config);
           $httpBackend.expect('GET', '/intercepted').respond('');
-          $http.get('/url');
+          $http.get('/url', config);
           $rootScope.$apply();
-          expect(config.method).toEqual('get');
-          expect(config.url).toEqual('/url');
-          expect(config.headers.foo).toEqual('bar');
+          expect(config).toEqual(configCopy);
+          $httpBackend.expect('POST', '/intercepted').respond('');
+          $http.post('/url', {bar: 'baz'}, config);
+          $rootScope.$apply();
+          expect(config).toEqual(configCopy);
         });
       });
 
@@ -930,12 +933,13 @@ describe('$http', function() {
       it('should handle empty response header', function() {
        $httpBackend.expect('GET', '/url', undefined)
            .respond(200, '', { 'Custom-Empty-Response-Header': '', 'Constructor': '' });
-       $http.get('/url').success(callback);
+       $http.get('/url').then(callback);
        $httpBackend.flush();
        expect(callback).toHaveBeenCalledOnce();
-       expect(callback.mostRecentCall.args[2]('custom-empty-response-Header')).toBe('');
-       expect(callback.mostRecentCall.args[2]('ToString')).toBe(null);
-       expect(callback.mostRecentCall.args[2]('Constructor')).toBe('');
+       var headers = callback.mostRecentCall.args[0].headers;
+       expect(headers('custom-empty-response-Header')).toEqual('');
+       expect(headers('ToString')).toBe(null);
+       expect(headers('Constructor')).toBe('');
      });
 
       it('should have delete()', function() {
@@ -1728,12 +1732,12 @@ describe('$http', function() {
 
         $httpBackend.expect('GET', '/some').respond(200);
 
-        $http({method: 'GET', url: '/some', timeout: canceler.promise}).error(
-            function(data, status, headers, config) {
-              expect(data).toBeUndefined();
-              expect(status).toBe(0);
-              expect(headers()).toEqual({});
-              expect(config.url).toBe('/some');
+        $http({method: 'GET', url: '/some', timeout: canceler.promise}).catch(
+            function(response) {
+              expect(response.data).toBeUndefined();
+              expect(response.status).toBe(-1);
+              expect(response.headers()).toEqual({});
+              expect(response.config.url).toBe('/some');
               callback();
             });
 
@@ -1972,6 +1976,36 @@ describe('$http with $applyAsync', function() {
   });
 });
 
+describe('$http without useLegacyPromiseExtensions', function() {
+  var $httpBackend, $http;
+  beforeEach(module(function($httpProvider) {
+    $httpProvider.useLegacyPromiseExtensions(false);
+  }, provideLog));
+
+  beforeEach(inject(['$httpBackend', '$http', '$rootScope', function($hb, $h, $rs) {
+    $httpBackend = $hb;
+    $http = $h;
+  }]));
+
+  it('should throw when the success or error methods are called if useLegacyPromiseExtensions is false', function() {
+    $httpBackend.expect('GET', '/url').respond('');
+    var promise = $http({url: '/url'});
+
+    function callSucess() {
+      promise.success();
+    }
+
+    function callError() {
+      promise.error();
+    }
+
+    expect(callSucess).toThrowMinErr(
+            '$http', 'legacy', 'The method `success` on the promise returned from `$http` has been disabled.');
+    expect(callError).toThrowMinErr(
+            '$http', 'legacy', 'The method `error` on the promise returned from `$http` has been disabled.');
+  });
+});
+
 describe('$http param serializers', function() {
 
   var defSer, jqrSer;
@@ -1992,6 +2026,8 @@ describe('$http param serializers', function() {
     it('should serialize objects', function() {
       expect(defSer({foo: 'foov', bar: 'barv'})).toEqual('bar=barv&foo=foov');
       expect(jqrSer({foo: 'foov', bar: 'barv'})).toEqual('bar=barv&foo=foov');
+      expect(defSer({someDate: new Date('2014-07-15T17:30:00.000Z')})).toEqual('someDate=2014-07-15T17:30:00.000Z');
+      expect(jqrSer({someDate: new Date('2014-07-15T17:30:00.000Z')})).toEqual('someDate=2014-07-15T17:30:00.000Z');
     });
 
   });
@@ -2010,9 +2046,21 @@ describe('$http param serializers', function() {
       expect(decodeURIComponent(jqrSer({a: 'b', foo: ['bar', 'baz']}))).toEqual('a=b&foo[]=bar&foo[]=baz');
     });
 
-    it('should serialize objects by repeating param name with [kay] suffix', function() {
+    it('should serialize objects by repeating param name with [key] suffix', function() {
       expect(jqrSer({a: 'b', foo: {'bar': 'barv', 'baz': 'bazv'}})).toEqual('a=b&foo%5Bbar%5D=barv&foo%5Bbaz%5D=bazv');
                                                                            //a=b&foo[bar]=barv&foo[baz]=bazv
+    });
+
+    it('should serialize nested objects by repeating param name with [key] suffix', function() {
+      expect(jqrSer({a: ['b', {c: 'd'}], e: {f: 'g', 'h': ['i', 'j']}})).toEqual(
+         'a%5B%5D=b&a%5B1%5D%5Bc%5D=d&e%5Bf%5D=g&e%5Bh%5D%5B%5D=i&e%5Bh%5D%5B%5D=j');
+         //a[]=b&a[1][c]=d&e[f]=g&e[h][]=i&e[h][]=j
+    });
+
+    it('should serialize objects inside array elements using their index', function() {
+      expect(jqrSer({a: ['b', 'c'], d: [{e: 'f', g: 'h'}, 'i', {j: 'k'}]})).toEqual(
+         'a%5B%5D=b&a%5B%5D=c&d%5B0%5D%5Be%5D=f&d%5B0%5D%5Bg%5D=h&d%5B%5D=i&d%5B2%5D%5Bj%5D=k');
+         //a[]=b&a[]=c&d[0][e]=f&d[0][g]=h&d[]=i&d[2][j]=k
     });
   });
 

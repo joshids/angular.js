@@ -822,6 +822,7 @@ describe('Scope', function() {
           expect(log.empty()).toEqual([{newVal: {b: {}, c: 'B'}, oldVal: {a: [], b: {}, c: 'B'}}]);
         });
 
+
         it('should not infinitely digest when current value is NaN', function() {
           $rootScope.obj = {a: NaN};
           expect(function() {
@@ -829,6 +830,18 @@ describe('Scope', function() {
           }).not.toThrow();
         });
 
+
+        it('should handle objects created using `Object.create(null)`', function() {
+          $rootScope.obj = Object.create(null);
+          $rootScope.obj.a = 'a';
+          $rootScope.obj.b = 'b';
+          $rootScope.$digest();
+          expect(log.empty()[0].newVal).toEqual({a: 'a', b: 'b'});
+
+          delete $rootScope.obj.b;
+          $rootScope.$digest();
+          expect(log.empty()[0].newVal).toEqual({a: 'a'});
+        });
       });
     });
 
@@ -1502,6 +1515,22 @@ describe('Scope', function() {
             $rootScope.$apply();
           });
         }).toThrowMinErr('$rootScope', 'inprog', '$apply already in progress');
+      }));
+
+
+      it('should not clear the state when calling $apply during an $apply', inject(
+          function($rootScope) {
+        $rootScope.$apply(function() {
+          expect(function() {
+            $rootScope.$apply();
+          }).toThrowMinErr('$rootScope', 'inprog', '$apply already in progress');
+          expect(function() {
+            $rootScope.$apply();
+          }).toThrowMinErr('$rootScope', 'inprog', '$apply already in progress');
+        });
+        expect(function() {
+          $rootScope.$apply();
+        }).not.toThrow();
       }));
 
 

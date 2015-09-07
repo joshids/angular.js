@@ -4,22 +4,23 @@ var $$AnimateCssDriverProvider = ['$$animationProvider', function($$animationPro
   $$animationProvider.drivers.push('$$animateCssDriver');
 
   var NG_ANIMATE_SHIM_CLASS_NAME = 'ng-animate-shim';
-  var NG_ANIMATE_ANCHOR_CLASS_NAME = 'ng-animate-anchor';
-  var NG_ANIMATE_ANCHOR_SUFFIX = '-anchor';
+  var NG_ANIMATE_ANCHOR_CLASS_NAME = 'ng-anchor';
 
   var NG_OUT_ANCHOR_CLASS_NAME = 'ng-anchor-out';
   var NG_IN_ANCHOR_CLASS_NAME = 'ng-anchor-in';
 
-  this.$get = ['$animateCss', '$rootScope', '$$AnimateRunner', '$rootElement', '$document', '$sniffer',
-       function($animateCss,   $rootScope,   $$AnimateRunner,   $rootElement,   $document,   $sniffer) {
+  this.$get = ['$animateCss', '$rootScope', '$$AnimateRunner', '$rootElement', '$$body', '$sniffer', '$$jqLite',
+       function($animateCss,   $rootScope,   $$AnimateRunner,   $rootElement,   $$body,   $sniffer,   $$jqLite) {
 
     // only browsers that support these properties can render animations
     if (!$sniffer.animations && !$sniffer.transitions) return noop;
 
-    var bodyNode = $document[0].body;
-    var rootNode = $rootElement[0];
+    var bodyNode = getDomNode($$body);
+    var rootNode = getDomNode($rootElement);
 
     var rootBodyElement = jqLite(bodyNode.parentNode === rootNode ? bodyNode : rootNode);
+
+    var applyAnimationClasses = applyAnimationClassesFactory($$jqLite);
 
     return function initDriverFn(animationDetails) {
       return animationDetails.from && animationDetails.to
@@ -44,15 +45,13 @@ var $$AnimateCssDriverProvider = ['$$animationProvider', function($$animationPro
     }
 
     function prepareAnchoredAnimation(classes, outAnchor, inAnchor) {
-      var clone = jqLite(outAnchor[0].cloneNode(true));
-      var startingClasses = filterCssClasses(clone.attr('class') || '');
-      var anchorClasses = pendClasses(classes, NG_ANIMATE_ANCHOR_SUFFIX);
+      var clone = jqLite(getDomNode(outAnchor).cloneNode(true));
+      var startingClasses = filterCssClasses(getClassVal(clone));
 
       outAnchor.addClass(NG_ANIMATE_SHIM_CLASS_NAME);
       inAnchor.addClass(NG_ANIMATE_SHIM_CLASS_NAME);
 
       clone.addClass(NG_ANIMATE_ANCHOR_CLASS_NAME);
-      clone.addClass(anchorClasses);
 
       rootBodyElement.append(clone);
 
@@ -113,7 +112,7 @@ var $$AnimateCssDriverProvider = ['$$animationProvider', function($$animationPro
       function calculateAnchorStyles(anchor) {
         var styles = {};
 
-        var coords = anchor[0].getBoundingClientRect();
+        var coords = getDomNode(anchor).getBoundingClientRect();
 
         // we iterate directly since safari messes up and doesn't return
         // all the keys for the coods object when iterated
@@ -133,22 +132,36 @@ var $$AnimateCssDriverProvider = ['$$animationProvider', function($$animationPro
       }
 
       function prepareOutAnimation() {
-        return $animateCss(clone, {
+        var animator = $animateCss(clone, {
           addClass: NG_OUT_ANCHOR_CLASS_NAME,
           delay: true,
           from: calculateAnchorStyles(outAnchor)
         });
+
+        // read the comment within `prepareRegularAnimation` to understand
+        // why this check is necessary
+        return animator.$$willAnimate ? animator : null;
+      }
+
+      function getClassVal(element) {
+        return element.attr('class') || '';
       }
 
       function prepareInAnimation() {
-        var endingClasses = filterCssClasses(inAnchor.attr('class'));
-        var classes = getUniqueValues(endingClasses, startingClasses);
-        return $animateCss(clone, {
+        var endingClasses = filterCssClasses(getClassVal(inAnchor));
+        var toAdd = getUniqueValues(endingClasses, startingClasses);
+        var toRemove = getUniqueValues(startingClasses, endingClasses);
+
+        var animator = $animateCss(clone, {
           to: calculateAnchorStyles(inAnchor),
-          addClass: NG_IN_ANCHOR_CLASS_NAME + ' ' + classes,
-          removeClass: NG_OUT_ANCHOR_CLASS_NAME + ' ' + startingClasses,
+          addClass: NG_IN_ANCHOR_CLASS_NAME + ' ' + toAdd,
+          removeClass: NG_OUT_ANCHOR_CLASS_NAME + ' ' + toRemove,
           delay: true
         });
+
+        // read the comment within `prepareRegularAnimation` to understand
+        // why this check is necessary
+        return animator.$$willAnimate ? animator : null;
       }
 
       function end() {
@@ -159,8 +172,8 @@ var $$AnimateCssDriverProvider = ['$$animationProvider', function($$animationPro
     }
 
     function prepareFromToAnchorAnimation(from, to, classes, anchors) {
-      var fromAnimation = prepareRegularAnimation(from);
-      var toAnimation = prepareRegularAnimation(to);
+      var fromAnimation = prepareRegularAnimation(from, noop);
+      var toAnimation = prepareRegularAnimation(to, noop);
 
       var anchorAnimations = [];
       forEach(anchors, function(anchor) {
@@ -215,21 +228,33 @@ var $$AnimateCssDriverProvider = ['$$animationProvider', function($$animationPro
       var element = animationDetails.element;
       var options = animationDetails.options || {};
 
-      options.structural = animationDetails.structural;
+      if (animationDetails.structural) {
+        options.event = animationDetails.event;
+        options.structural = true;
+        options.applyClassesEarly = true;
 
-      // structural animations ensure that the CSS classes are always applied
-      // before the detection starts.
-      options.applyClassesEarly = options.structural;
-
-      // we special case the leave animation since we want to ensure that
-      // the element is removed as soon as the animation is over. Otherwise
-      // a flicker might appear or the element may not be removed at all
-      options.event = animationDetails.event;
-      if (options.event === 'leave' && animationDetails.domOperation) {
-        options.onDone = animationDetails.domOperation;
+        // we special case the leave animation since we want to ensure that
+        // the element is removed as soon as the animation is over. Otherwise
+        // a flicker might appear or the element may not be removed at all
+        if (animationDetails.event === 'leave') {
+          options.onDone = options.domOperation;
+        }
       }
 
-      return $animateCss(element, options);
+      // We assign the preparationClasses as the actual animation event since
+      // the internals of $animateCss will just suffix the event token values
+      // with `-active` to trigger the animation.
+      if (options.preparationClasses) {
+        options.event = concatWithSpace(options.event, options.preparationClasses);
+      }
+
+      var animator = $animateCss(element, options);
+
+      // the driver lookup code inside of $$animation attempts to spawn a
+      // driver one by one until a driver returns a.$$willAnimate animator object.
+      // $animateCss will always return an object, however, it will pass in
+      // a flag as a hint as to whether an animation was detected or not
+      return animator.$$willAnimate ? animator : null;
     }
   }];
 }];

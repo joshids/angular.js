@@ -1681,8 +1681,9 @@ describe('parser', function() {
 
       beforeEach(module(function($provide) {
         $provide.decorator('$sniffer', function($delegate) {
-          $delegate.csp = cspEnabled;
-          return $delegate;
+          expect($delegate.csp.noUnsafeEval === true ||
+                 $delegate.csp.noUnsafeEval === false).toEqual(true);
+          $delegate.csp.noUnsafeEval = cspEnabled;
         });
       }, provideLog));
 
@@ -1745,6 +1746,16 @@ describe('parser', function() {
         expect(scope.$eval("0&&2")).toEqual(0 && 2);
         expect(scope.$eval("0||2")).toEqual(0 || 2);
         expect(scope.$eval("0||1&&2")).toEqual(0 || 1 && 2);
+        expect(scope.$eval("true&&a")).toEqual(true && undefined);
+        expect(scope.$eval("true&&a()")).toEqual(true && undefined);
+        expect(scope.$eval("true&&a()()")).toEqual(true && undefined);
+        expect(scope.$eval("true&&a.b")).toEqual(true && undefined);
+        expect(scope.$eval("true&&a.b.c")).toEqual(true && undefined);
+        expect(scope.$eval("false||a")).toEqual(false || undefined);
+        expect(scope.$eval("false||a()")).toEqual(false || undefined);
+        expect(scope.$eval("false||a()()")).toEqual(false || undefined);
+        expect(scope.$eval("false||a.b")).toEqual(false || undefined);
+        expect(scope.$eval("false||a.b.c")).toEqual(false || undefined);
       });
 
       it('should parse ternary', function() {
@@ -2110,9 +2121,8 @@ describe('parser', function() {
 
         expect(scope.$eval('items[1] = "abc"')).toEqual("abc");
         expect(scope.$eval('items[1]')).toEqual("abc");
-    //    Dont know how to make this work....
-    //    expect(scope.$eval('books[1] = "moby"')).toEqual("moby");
-    //    expect(scope.$eval('books[1]')).toEqual("moby");
+        expect(scope.$eval('books[1] = "moby"')).toEqual("moby");
+        expect(scope.$eval('books[1]')).toEqual("moby");
       });
 
       it('should evaluate grouped filters', function() {
@@ -2785,6 +2795,14 @@ describe('parser', function() {
           var scope = {};
           fn.assign(scope, 123);
           expect(scope).toEqual({a:123});
+        }));
+
+        it('should return the assigned value', inject(function($parse) {
+          var fn = $parse('a');
+          var scope = {};
+          expect(fn.assign(scope, 123)).toBe(123);
+          var someObject = {};
+          expect(fn.assign(scope, someObject)).toBe(someObject);
         }));
 
         it('should expose working assignment function for expressions ending with brackets', inject(function($parse) {

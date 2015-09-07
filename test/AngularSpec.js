@@ -336,7 +336,7 @@ describe('angular', function() {
       expect(hashKey(dst)).not.toEqual(hashKey(src));
     });
 
-    it('should retain the previous $$hashKey', function() {
+    it('should retain the previous $$hashKey when copying object with hashKey', function() {
       var src,dst,h;
       src = {};
       dst = {};
@@ -351,7 +351,21 @@ describe('angular', function() {
       expect(hashKey(dst)).toEqual(h);
     });
 
-    it('should handle circular references when circularRefs is turned on', function() {
+    it('should retain the previous $$hashKey when copying non-object', function() {
+      var dst = {};
+      var h = hashKey(dst);
+
+      copy(null, dst);
+      expect(hashKey(dst)).toEqual(h);
+
+      copy(42, dst);
+      expect(hashKey(dst)).toEqual(h);
+
+      copy(new Date(), dst);
+      expect(hashKey(dst)).toEqual(h);
+    });
+
+    it('should handle circular references', function() {
       var a = {b: {a: null}, self: null, selfs: [null, null, [null]]};
       a.b.a = a;
       a.self = a;
@@ -362,13 +376,75 @@ describe('angular', function() {
 
       expect(aCopy).not.toBe(a);
       expect(aCopy).toBe(aCopy.self);
+      expect(aCopy).toBe(aCopy.selfs[2][0]);
       expect(aCopy.selfs[2]).not.toBe(a.selfs[2]);
+
+      var copyTo = [];
+      aCopy = copy(a, copyTo);
+      expect(aCopy).toBe(copyTo);
+      expect(aCopy).not.toBe(a);
+      expect(aCopy).toBe(aCopy.self);
+    });
+
+    it('should handle objects with multiple references', function() {
+      var b = {};
+      var a = [b, -1, b];
+
+      var aCopy = copy(a);
+      expect(aCopy[0]).not.toBe(a[0]);
+      expect(aCopy[0]).toBe(aCopy[2]);
+
+      var copyTo = [];
+      aCopy = copy(a, copyTo);
+      expect(aCopy).toBe(copyTo);
+      expect(aCopy[0]).not.toBe(a[0]);
+      expect(aCopy[0]).toBe(aCopy[2]);
+    });
+
+    it('should handle date/regex objects with multiple references', function() {
+      var re = /foo/;
+      var d = new Date();
+      var o = {re: re, re2: re, d: d, d2: d};
+
+      var oCopy = copy(o);
+      expect(oCopy.re).toBe(oCopy.re2);
+      expect(oCopy.d).toBe(oCopy.d2);
+
+      oCopy = copy(o, {});
+      expect(oCopy.re).toBe(oCopy.re2);
+      expect(oCopy.d).toBe(oCopy.d2);
     });
 
     it('should clear destination arrays correctly when source is non-array', function() {
       expect(copy(null, [1,2,3])).toEqual([]);
       expect(copy(undefined, [1,2,3])).toEqual([]);
       expect(copy({0: 1, 1: 2}, [1,2,3])).toEqual([1,2]);
+      expect(copy(new Date(), [1,2,3])).toEqual([]);
+      expect(copy(/a/, [1,2,3])).toEqual([]);
+      expect(copy(true, [1,2,3])).toEqual([]);
+    });
+
+    it('should clear destination objects correctly when source is non-array', function() {
+      expect(copy(null, {0:1,1:2,2:3})).toEqual({});
+      expect(copy(undefined, {0:1,1:2,2:3})).toEqual({});
+      expect(copy(new Date(), {0:1,1:2,2:3})).toEqual({});
+      expect(copy(/a/, {0:1,1:2,2:3})).toEqual({});
+      expect(copy(true, {0:1,1:2,2:3})).toEqual({});
+    });
+
+    it('should copy objects with no prototype parent', function() {
+      var obj = extend(Object.create(null), {
+        a: 1,
+        b: 2,
+        c: 3
+      });
+      var dest = copy(obj);
+
+      expect(Object.getPrototypeOf(dest)).toBe(null);
+      expect(dest.a).toBe(1);
+      expect(dest.b).toBe(2);
+      expect(dest.c).toBe(3);
+      expect(Object.keys(dest)).toEqual(['a', 'b', 'c']);
     });
   });
 
@@ -404,6 +480,16 @@ describe('angular', function() {
       dst = extend(dst,src);
       // make sure we retain the old key
       expect(hashKey(dst)).toEqual(h);
+    });
+
+
+    it('should copy dates by reference', function() {
+      var src = { date: new Date() };
+      var dst = {};
+
+      extend(dst, src);
+
+      expect(dst.date).toBe(src.date);
     });
   });
 
@@ -471,6 +557,29 @@ describe('angular', function() {
         foo: [1,2,3]
       });
       expect(dst.foo).not.toBe(src.foo);
+    });
+
+
+    it('should copy dates by value', function() {
+      var src = { date: new Date() };
+      var dst = {};
+
+      merge(dst, src);
+
+      expect(dst.date).not.toBe(src.date);
+      expect(isDate(dst.date)).toBeTruthy();
+      expect(dst.date.valueOf()).toEqual(src.date.valueOf());
+    });
+
+    it('should copy regexp by value', function() {
+      var src = { regexp: /blah/ };
+      var dst = {};
+
+      merge(dst, src);
+
+      expect(dst.regexp).not.toBe(src.regexp);
+      expect(isRegExp(dst.regexp)).toBe(true);
+      expect(dst.regexp.toString()).toBe(src.regexp.toString());
     });
   });
 
@@ -651,47 +760,113 @@ describe('angular', function() {
     it('should return false when comparing an object and a Date', function() {
       expect(equals({}, new Date())).toBe(false);
     });
+
+    it('should safely compare objects with no prototype parent', function() {
+      var o1 = extend(Object.create(null), {
+        a: 1, b: 2, c: 3
+      });
+      var o2 = extend(Object.create(null), {
+        a: 1, b: 2, c: 3
+      });
+      expect(equals(o1, o2)).toBe(true);
+      o2.c = 2;
+      expect(equals(o1, o2)).toBe(false);
+    });
+
+
+    it('should safely compare objects which shadow Object.prototype.hasOwnProperty', function() {
+      /* jshint -W001 */
+      var o1 = {
+        hasOwnProperty: true,
+        a: 1,
+        b: 2,
+        c: 3
+      };
+      var o2 = {
+        hasOwnProperty: true,
+        a: 1,
+        b: 2,
+        c: 3
+      };
+      expect(equals(o1, o2)).toBe(true);
+      o1.hasOwnProperty = function() {};
+      expect(equals(o1, o2)).toBe(false);
+    });
   });
 
 
   describe('csp', function() {
+
+    function mockCspElement(cspAttrName, cspAttrValue) {
+      return spyOn(document, 'querySelector').andCallFake(function(selector) {
+        if (selector == '[' + cspAttrName + ']') {
+          var html = '<div ' + cspAttrName + (cspAttrValue ? ('="' + cspAttrValue + '" ') : '') + '></div>';
+          return jqLite(html)[0];
+        }
+      });
+
+    }
+
     var originalFunction;
 
     beforeEach(function() {
-      originalFunction = window.Function;
+      spyOn(window, 'Function');
     });
 
     afterEach(function() {
-      window.Function = originalFunction;
-      delete csp.isActive_;
+      delete csp.rules;
     });
 
 
-    it('should return the false when CSP is not enabled (the default)', function() {
-      expect(csp()).toBe(false);
+    it('should return the false for all rules when CSP is not enabled (the default)', function() {
+      expect(csp()).toEqual({ noUnsafeEval: false, noInlineStyle: false });
     });
 
 
-    it('should return true if CSP is autodetected via CSP v1.1 securityPolicy.isActive property', function() {
-      window.Function = function() { throw new Error('CSP test'); };
-      expect(csp()).toBe(true);
+    it('should return true for noUnsafeEval if eval causes a CSP security policy error', function() {
+      window.Function.andCallFake(function() { throw new Error('CSP test'); });
+      expect(csp()).toEqual({ noUnsafeEval: true, noInlineStyle: false });
+      expect(window.Function).toHaveBeenCalledWith('');
     });
 
 
-    it('should return the true when CSP is enabled manually via [ng-csp]', function() {
-      spyOn(document, 'querySelector').andCallFake(function(selector) {
-        if (selector == '[ng-csp]') return {};
-      });
-      expect(csp()).toBe(true);
+    it('should return true for all rules when CSP is enabled manually via empty `ng-csp` attribute', function() {
+      var spy = mockCspElement('ng-csp');
+      expect(csp()).toEqual({ noUnsafeEval: true, noInlineStyle: true });
+      expect(spy).toHaveBeenCalledWith('[ng-csp]');
+      expect(window.Function).not.toHaveBeenCalled();
     });
 
 
-    it('should return the true when CSP is enabled manually via [data-ng-csp]', function() {
-      spyOn(document, 'querySelector').andCallFake(function(selector) {
-        if (selector == '[data-ng-csp]') return {};
-      });
-      expect(csp()).toBe(true);
-      expect(document.querySelector).toHaveBeenCalledWith('[data-ng-csp]');
+    it('should return true when CSP is enabled manually via [data-ng-csp]', function() {
+      var spy = mockCspElement('data-ng-csp');
+      expect(csp()).toEqual({ noUnsafeEval: true, noInlineStyle: true });
+      expect(spy).toHaveBeenCalledWith('[data-ng-csp]');
+      expect(window.Function).not.toHaveBeenCalled();
+    });
+
+
+    it('should return true for noUnsafeEval if it is specified in the `ng-csp` attribute value', function() {
+      var spy = mockCspElement('ng-csp', 'no-unsafe-eval');
+      expect(csp()).toEqual({ noUnsafeEval: true, noInlineStyle: false });
+      expect(spy).toHaveBeenCalledWith('[ng-csp]');
+      expect(window.Function).not.toHaveBeenCalled();
+    });
+
+
+    it('should return true for noInlineStyle if it is specified in the `ng-csp` attribute value', function() {
+      var spy = mockCspElement('ng-csp', 'no-inline-style');
+      expect(csp()).toEqual({ noUnsafeEval: false, noInlineStyle: true });
+      expect(spy).toHaveBeenCalledWith('[ng-csp]');
+      expect(window.Function).not.toHaveBeenCalled();
+    });
+
+
+    it('should return true for all styles if they are all specified in the `ng-csp` attribute value', function() {
+      var spy = mockCspElement('ng-csp', 'no-inline-style;no-unsafe-eval');
+      expect(csp()).toEqual({ noUnsafeEval: true, noInlineStyle: true });
+      expect(spy).toHaveBeenCalledWith('[ng-csp]');
+      expect(window.Function).not.toHaveBeenCalled();
     });
   });
 
@@ -817,6 +992,12 @@ describe('angular', function() {
     it('should ignore properties higher in the prototype chain', function() {
       expect(parseKeyValue('toString=123')).toEqual({
         'toString': '123'
+      });
+    });
+
+    it('should ignore badly escaped = characters', function() {
+      expect(parseKeyValue('test=a=b')).toEqual({
+          'test': 'a=b'
       });
     });
   });
@@ -977,6 +1158,42 @@ describe('angular', function() {
       });
       expect(log.length).toBe(1);
       expect(log[0]).toBe('SPARSE5');
+    });
+
+
+    it('should safely iterate through objects with no prototype parent', function() {
+      var obj = extend(Object.create(null), {
+        a: 1, b: 2, c: 3
+      });
+      var log = [];
+      var self = {};
+      forEach(obj, function(val, key, collection) {
+        expect(this).toBe(self);
+        expect(collection).toBe(obj);
+        log.push(key + '=' + val);
+      }, self);
+      expect(log.length).toBe(3);
+      expect(log).toEqual(['a=1', 'b=2', 'c=3']);
+    });
+
+
+    it('should safely iterate through objects which shadow Object.prototype.hasOwnProperty', function() {
+      /* jshint -W001 */
+      var obj = {
+        hasOwnProperty: true,
+        a: 1,
+        b: 2,
+        c: 3
+      };
+      var log = [];
+      var self = {};
+      forEach(obj, function(val, key, collection) {
+        expect(this).toBe(self);
+        expect(collection).toBe(obj);
+        log.push(key + '=' + val);
+      }, self);
+      expect(log.length).toBe(4);
+      expect(log).toEqual(['hasOwnProperty=true', 'a=1', 'b=2', 'c=3']);
     });
 
 

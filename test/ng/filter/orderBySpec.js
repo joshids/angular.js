@@ -23,7 +23,7 @@ describe('Filter: orderBy', function() {
     });
 
 
-    it('shouldSortArrayInReverse', function() {
+    it('should reverse collection if `reverseOrder` param is truthy', function() {
       expect(orderBy([{a:15}, {a:2}], 'a', true)).toEqualData([{a:15}, {a:2}]);
       expect(orderBy([{a:15}, {a:2}], 'a', "T")).toEqualData([{a:15}, {a:2}]);
       expect(orderBy([{a:15}, {a:2}], 'a', "reverse")).toEqualData([{a:15}, {a:2}]);
@@ -116,7 +116,7 @@ describe('Filter: orderBy', function() {
     });
 
 
-    it('should not reverse array of objects with no predicate', function() {
+    it('should not reverse array of objects with no predicate and reverse is not `true`', function() {
       var array = [
         { id: 2 },
         { id: 1 },
@@ -124,6 +124,39 @@ describe('Filter: orderBy', function() {
         { id: 3 }
       ];
       expect(orderBy(array)).toEqualData(array);
+    });
+
+    it('should reverse array of objects with no predicate and reverse is `true`', function() {
+      var array = [
+        { id: 2 },
+        { id: 1 },
+        { id: 4 },
+        { id: 3 }
+      ];
+      var reversedArray = [
+        { id: 3 },
+        { id: 4 },
+        { id: 1 },
+        { id: 2 }
+      ];
+      expect(orderBy(array, '', true)).toEqualData(reversedArray);
+    });
+
+
+    it('should reverse array of objects with predicate of "-"', function() {
+      var array = [
+        { id: 2 },
+        { id: 1 },
+        { id: 4 },
+        { id: 3 }
+      ];
+      var reversedArray = [
+        { id: 3 },
+        { id: 4 },
+        { id: 1 },
+        { id: 2 }
+      ];
+      expect(orderBy(array, '-')).toEqualData(reversedArray);
     });
 
 
@@ -150,6 +183,45 @@ describe('Filter: orderBy', function() {
         null,
         null
       ]);
+    });
+
+
+    it('should sort array of arrays as Array.prototype.sort', function() {
+      expect(orderBy([['one'], ['two'], ['three']])).toEqualData([['one'], ['three'], ['two']]);
+    });
+
+
+    it('should sort mixed array of objects and values in a stable way', function() {
+      expect(orderBy([{foo: 2}, {foo: {}}, {foo: 3}, {foo: 4}], 'foo')).toEqualData([{foo: 2}, {foo: 3}, {foo: 4}, {foo: {}}]);
+    });
+
+
+    it('should perform a stable sort', function() {
+      expect(orderBy([
+          {foo: 2, bar: 1}, {foo: 1, bar: 2}, {foo: 2, bar: 3},
+          {foo: 2, bar: 4}, {foo: 1, bar: 5}, {foo: 2, bar: 6},
+          {foo: 2, bar: 7}, {foo: 1, bar: 8}, {foo: 2, bar: 9},
+          {foo: 1, bar: 10}, {foo: 2, bar: 11}, {foo: 1, bar: 12}
+        ], 'foo'))
+          .toEqualData([
+          {foo: 1, bar: 2}, {foo: 1, bar: 5}, {foo: 1, bar: 8},
+          {foo: 1, bar: 10}, {foo: 1, bar: 12}, {foo: 2, bar: 1},
+          {foo: 2, bar: 3}, {foo: 2, bar: 4}, {foo: 2, bar: 6},
+          {foo: 2, bar: 7}, {foo: 2, bar: 9}, {foo: 2, bar: 11}
+          ]);
+
+      expect(orderBy([
+          {foo: 2, bar: 1}, {foo: 1, bar: 2}, {foo: 2, bar: 3},
+          {foo: 2, bar: 4}, {foo: 1, bar: 5}, {foo: 2, bar: 6},
+          {foo: 2, bar: 7}, {foo: 1, bar: 8}, {foo: 2, bar: 9},
+          {foo: 1, bar: 10}, {foo: 2, bar: 11}, {foo: 1, bar: 12}
+        ], 'foo', true))
+          .toEqualData([
+          {foo: 2, bar: 11}, {foo: 2, bar: 9}, {foo: 2, bar: 7},
+          {foo: 2, bar: 6}, {foo: 2, bar: 4}, {foo: 2, bar: 3},
+          {foo: 2, bar: 1}, {foo: 1, bar: 12}, {foo: 1, bar: 10},
+          {foo: 1, bar: 8}, {foo: 1, bar: 5}, {foo: 1, bar: 2}
+          ]);
     });
   });
 

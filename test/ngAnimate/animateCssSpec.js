@@ -3,6 +3,7 @@
 describe("ngAnimate $animateCss", function() {
 
   beforeEach(module('ngAnimate'));
+  beforeEach(module('ngAnimateMock'));
 
   function assertAnimationRunning(element, not) {
     var className = element.attr('class');
@@ -17,9 +18,10 @@ describe("ngAnimate $animateCss", function() {
 
   var ss, prefix, triggerAnimationStartFrame;
   beforeEach(module(function() {
-    return function($document, $window, $sniffer, $$rAF) {
+    return function($document, $window, $sniffer, $$rAF, $animate) {
       prefix = '-' + $sniffer.vendorPrefix.toLowerCase() + '-';
       ss = createMockStyleSheet($document, $window);
+      $animate.enabled(true);
       triggerAnimationStartFrame = function() {
         $$rAF.flush();
       };
@@ -33,29 +35,83 @@ describe("ngAnimate $animateCss", function() {
   });
 
   it("should return false if neither transitions or keyframes are supported by the browser",
-    inject(function($animateCss, $sniffer, $rootElement, $document) {
+    inject(function($animateCss, $sniffer, $rootElement, $$body) {
 
     var animator;
     var element = jqLite('<div></div>');
     $rootElement.append(element);
-    jqLite($document[0].body).append($rootElement);
+    $$body.append($rootElement);
 
     $sniffer.transitions = $sniffer.animations = false;
     animator = $animateCss(element, {
       duration: 10,
       to: { 'background': 'red' }
     });
-    expect(animator).toBeFalsy();
+    expect(animator.$$willAnimate).toBeFalsy();
   }));
 
   describe('when active', function() {
     if (!browserSupportsCssAnimations()) return;
 
+    it("should not attempt an animation if animations are globally disabled",
+      inject(function($animateCss, $animate, $rootElement, $$body) {
+
+      $animate.enabled(false);
+
+      var animator, element = jqLite('<div></div>');
+      $rootElement.append(element);
+      $$body.append($rootElement);
+
+      animator = $animateCss(element, {
+        duration: 10,
+        to: { 'height': '100px' }
+      });
+
+      expect(animator.$$willAnimate).toBeFalsy();
+    }));
+
+    it("should silently quit the animation and not throw when an element has no parent during preparation",
+      inject(function($animateCss, $rootScope, $document, $rootElement) {
+
+      var element = jqLite('<div></div>');
+      expect(function() {
+        $animateCss(element, {
+          duration: 1000,
+          event: 'fake',
+          to: fakeStyle
+        }).start();
+      }).not.toThrow();
+
+      expect(element).not.toHaveClass('fake');
+      triggerAnimationStartFrame();
+      expect(element).not.toHaveClass('fake-active');
+    }));
+
+    it("should silently quit the animation and not throw when an element has no parent before starting",
+      inject(function($animateCss, $$rAF, $rootScope, $document, $rootElement) {
+
+      var element = jqLite('<div></div>');
+      jqLite($document[0].body).append($rootElement);
+      $rootElement.append(element);
+
+      $animateCss(element, {
+        duration: 1000,
+        addClass: 'wait-for-it',
+        to: fakeStyle
+      }).start();
+
+      element.remove();
+
+      expect(function() {
+        triggerAnimationStartFrame();
+      }).not.toThrow();
+    }));
+
     describe("rAF usage", function() {
       it("should buffer all requests into a single requestAnimationFrame call",
-        inject(function($animateCss, $$rAF, $rootScope, $document, $rootElement) {
+        inject(function($animateCss, $$rAF, $rootScope, $$body, $rootElement) {
 
-        jqLite($document[0].body).append($rootElement);
+        $$body.append($rootElement);
 
         var count = 0;
         var runners = [];
@@ -93,8 +149,8 @@ describe("ngAnimate $animateCss", function() {
             };
           });
         });
-        inject(function($animateCss, $$rAF, $document, $rootElement) {
-          jqLite($document[0].body).append($rootElement);
+        inject(function($animateCss, $$rAF, $$body, $rootElement) {
+          $$body.append($rootElement);
 
           function makeRequest() {
             var element = jqLite('<div></div>');
@@ -113,10 +169,10 @@ describe("ngAnimate $animateCss", function() {
     describe("animator and runner", function() {
       var animationDuration = 5;
       var element, animator;
-      beforeEach(inject(function($animateCss, $rootElement, $document) {
+      beforeEach(inject(function($animateCss, $rootElement, $$body) {
         element = jqLite('<div></div>');
         $rootElement.append(element);
-        jqLite($document[0].body).append($rootElement);
+        $$body.append($rootElement);
 
         animator = $animateCss(element, {
           event: 'enter',
@@ -309,12 +365,103 @@ describe("ngAnimate $animateCss", function() {
             { timeStamp: Date.now() + ((delay || 1) * 1000), elapsedTime: duration });
         }
 
-        beforeEach(inject(function($rootElement, $document) {
+        beforeEach(inject(function($rootElement, $$body) {
           element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
           options = { event: 'enter', structural: true };
         }));
+
+        it("should always return an object even if no animation is detected",
+          inject(function($animateCss) {
+
+          ss.addRule('.some-animation', 'background:red;');
+
+          element.addClass('some-animation');
+          var animator = $animateCss(element, options);
+
+          expect(animator).toBeTruthy();
+          expect(isFunction(animator.start)).toBeTruthy();
+          expect(animator.end).toBeTruthy();
+          expect(animator.$$willAnimate).toBe(false);
+        }));
+
+        it("should close the animation immediately, but still return an animator object if no animation is detected",
+          inject(function($animateCss) {
+
+          ss.addRule('.another-fake-animation', 'background:blue;');
+
+          element.addClass('another-fake-animation');
+          var animator = $animateCss(element, {
+            event: 'enter',
+            structural: true
+          });
+
+          expect(element).not.toHaveClass('ng-enter');
+          expect(isFunction(animator.start)).toBeTruthy();
+        }));
+
+        they("should close the animation, but still accept $prop callbacks if no animation is detected",
+          ['done', 'then'], function(method) {
+
+          inject(function($animateCss, $animate, $rootScope) {
+            ss.addRule('.the-third-fake-animation', 'background:green;');
+
+            element.addClass('another-fake-animation');
+            var animator = $animateCss(element, {
+              event: 'enter',
+              structural: true
+            });
+
+            var done = false;
+            animator.start()[method](function() {
+              done = true;
+            });
+
+            expect(done).toBe(false);
+            $animate.flush();
+
+            if (method === 'then') {
+              $rootScope.$digest();
+            }
+            expect(done).toBe(true);
+          });
+        });
+
+        they("should close the animation, but still accept recognize runner.$prop if no animation is detected",
+          ['done(cancel)', 'catch'], function(method) {
+
+          inject(function($animateCss, $rootScope) {
+            ss.addRule('.the-third-fake-animation', 'background:green;');
+
+            element.addClass('another-fake-animation');
+            var animator = $animateCss(element, {
+              event: 'enter',
+              structural: true
+            });
+
+            var cancelled = false;
+            var runner = animator.start();
+
+            if (method === 'catch') {
+              runner.catch(function() {
+                cancelled = true;
+              });
+            } else {
+              runner.done(function(status) {
+                cancelled = status === false;
+              });
+            }
+
+            expect(cancelled).toBe(false);
+            runner.cancel();
+
+            if (method === 'catch') {
+              $rootScope.$digest();
+            }
+            expect(cancelled).toBe(true);
+          });
+        });
 
         it("should use the highest transition duration value detected in the CSS class", inject(function($animateCss) {
           ss.addRule('.ng-enter', 'transition:1s linear all;' +
@@ -491,9 +638,9 @@ describe("ngAnimate $animateCss", function() {
 
       describe("staggering", function() {
         it("should apply a stagger based when an active ng-EVENT-stagger class with a transition-delay is detected",
-          inject(function($animateCss, $document, $rootElement, $timeout) {
+          inject(function($animateCss, $$body, $rootElement, $timeout) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.ng-enter-stagger', 'transition-delay:0.2s');
           ss.addRule('.ng-enter', 'transition:2s linear all');
@@ -532,9 +679,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should apply a stagger based when for all provided addClass/removeClass CSS classes",
-          inject(function($animateCss, $document, $rootElement, $timeout) {
+          inject(function($animateCss, $$body, $rootElement, $timeout) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.red-add-stagger,' +
                      '.blue-remove-stagger,' +
@@ -602,9 +749,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should block the transition animation between start and animate when staggered",
-          inject(function($animateCss, $document, $rootElement) {
+          inject(function($animateCss, $$body, $rootElement) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.ng-enter-stagger', 'transition-delay:0.2s');
           ss.addRule('.ng-enter', 'transition:2s linear all;');
@@ -633,9 +780,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should block (pause) the keyframe animation between start and animate when staggered",
-          inject(function($animateCss, $document, $rootElement) {
+          inject(function($animateCss, $$body, $rootElement) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.ng-enter-stagger', prefix + 'animation-delay:0.2s');
           ss.addRule('.ng-enter', prefix + 'animation:my_animation 2s;');
@@ -662,9 +809,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should not apply a stagger if the transition delay value is inherited from a earlier CSS class",
-          inject(function($animateCss, $document, $rootElement) {
+          inject(function($animateCss, $$body, $rootElement) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.transition-animation', 'transition:2s 5s linear all;');
 
@@ -681,9 +828,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should apply a stagger only if the transition duration value is zero when inherited from a earlier CSS class",
-          inject(function($animateCss, $document, $rootElement) {
+          inject(function($animateCss, $$body, $rootElement) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.transition-animation', 'transition:2s 5s linear all;');
           ss.addRule('.transition-animation.ng-enter-stagger',
@@ -707,9 +854,9 @@ describe("ngAnimate $animateCss", function() {
 
 
         it("should ignore animation staggers if only transition animations were detected",
-          inject(function($animateCss, $document, $rootElement) {
+          inject(function($animateCss, $$body, $rootElement) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.ng-enter-stagger', prefix + 'animation-delay:0.2s');
           ss.addRule('.transition-animation', 'transition:2s 5s linear all;');
@@ -727,9 +874,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should ignore transition staggers if only keyframe animations were detected",
-          inject(function($animateCss, $document, $rootElement) {
+          inject(function($animateCss, $$body, $rootElement) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.ng-enter-stagger', 'transition-delay:0.2s');
           ss.addRule('.transition-animation', prefix + 'animation:2s 5s my_animation;');
@@ -747,9 +894,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should start on the highest stagger value if both transition and keyframe staggers are used together",
-          inject(function($animateCss, $document, $rootElement, $timeout, $browser) {
+          inject(function($animateCss, $$body, $rootElement, $timeout, $browser) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.ng-enter-stagger', 'transition-delay:0.5s;' +
                                  prefix + 'animation-delay:1s');
@@ -785,9 +932,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should apply the closing timeout ontop of the stagger timeout",
-          inject(function($animateCss, $document, $rootElement, $timeout, $browser) {
+          inject(function($animateCss, $$body, $rootElement, $timeout, $browser) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.ng-enter-stagger', 'transition-delay:1s;');
           ss.addRule('.ng-enter', 'transition:10s linear all;');
@@ -812,9 +959,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should apply the closing timeout ontop of the stagger timeout with an added delay",
-          inject(function($animateCss, $document, $rootElement, $timeout, $browser) {
+          inject(function($animateCss, $$body, $rootElement, $timeout, $browser) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.ng-enter-stagger', 'transition-delay:1s;');
           ss.addRule('.ng-enter', 'transition:10s linear all; transition-delay:50s;');
@@ -839,9 +986,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should issue a stagger if a stagger value is provided in the options",
-          inject(function($animateCss, $document, $rootElement, $timeout) {
+          inject(function($animateCss, $$body, $rootElement, $timeout) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
           ss.addRule('.ng-enter', 'transition:2s linear all');
 
           var elm, i, elements = [];
@@ -878,9 +1025,9 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should only add/remove classes once the stagger timeout has passed",
-          inject(function($animateCss, $document, $rootElement, $timeout) {
+          inject(function($animateCss, $$body, $rootElement, $timeout) {
 
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var element = jqLite('<div class="green"></div>');
           $rootElement.append(element);
@@ -905,13 +1052,13 @@ describe("ngAnimate $animateCss", function() {
 
       describe("closing timeout", function() {
         it("should close off the animation after 150% of the animation time has passed",
-          inject(function($animateCss, $document, $rootElement, $timeout) {
+          inject(function($animateCss, $$body, $rootElement, $timeout) {
 
           ss.addRule('.ng-enter', 'transition:10s linear all;');
 
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var animator = $animateCss(element, { event: 'enter', structural: true });
           animator.start();
@@ -928,13 +1075,13 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should close off the animation after 150% of the animation time has passed and consider the detected delay value",
-          inject(function($animateCss, $document, $rootElement, $timeout) {
+          inject(function($animateCss, $$body, $rootElement, $timeout) {
 
           ss.addRule('.ng-enter', 'transition:10s linear all; transition-delay:30s;');
 
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var animator = $animateCss(element, { event: 'enter', structural: true });
           animator.start();
@@ -951,13 +1098,13 @@ describe("ngAnimate $animateCss", function() {
         }));
 
         it("should still resolve the animation once expired",
-          inject(function($animateCss, $document, $rootElement, $timeout) {
+          inject(function($animateCss, $$body, $rootElement, $timeout, $animate, $rootScope) {
 
           ss.addRule('.ng-enter', 'transition:10s linear all;');
 
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var animator = $animateCss(element, { event: 'enter', structural: true });
 
@@ -970,17 +1117,19 @@ describe("ngAnimate $animateCss", function() {
 
           triggerAnimationStartFrame();
           $timeout.flush(15000);
+          $animate.flush();
+          $rootScope.$digest();
           expect(passed).toBe(true);
         }));
 
         it("should not resolve/reject after passing if the animation completed successfully",
-          inject(function($animateCss, $document, $rootElement, $timeout, $rootScope) {
+          inject(function($animateCss, $$body, $rootElement, $timeout, $rootScope, $animate) {
 
           ss.addRule('.ng-enter', 'transition:10s linear all;');
 
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var animator = $animateCss(element, { event: 'enter', structural: true });
 
@@ -998,6 +1147,7 @@ describe("ngAnimate $animateCss", function() {
           browserTrigger(element, 'transitionend',
             { timeStamp: Date.now() + 1000, elapsedTime: 10 });
 
+          $animate.flush();
           $rootScope.$digest();
 
           expect(passed).toBe(true);
@@ -1007,6 +1157,82 @@ describe("ngAnimate $animateCss", function() {
 
           expect(passed).toBe(true);
           expect(failed).not.toBe(true);
+        }));
+
+        it("should close all stacked animations after the last timeout runs on the same element",
+          inject(function($animateCss, $$body, $rootElement, $timeout, $animate) {
+
+          var now = 0;
+          spyOn(Date, 'now').andCallFake(function() {
+            return now;
+          });
+
+          var cancelSpy = spyOn($timeout, 'cancel').andCallThrough();
+          var doneSpy = jasmine.createSpy();
+
+          ss.addRule('.elm', 'transition:1s linear all;');
+          ss.addRule('.elm.red', 'background:red;');
+          ss.addRule('.elm.blue', 'transition:2s linear all; background:blue;');
+          ss.addRule('.elm.green', 'background:green;');
+
+          var element = jqLite('<div class="elm"></div>');
+          $rootElement.append(element);
+          $$body.append($rootElement);
+
+          // timeout will be at 1500s
+          animate(element, 'red', doneSpy);
+          expect(doneSpy).not.toHaveBeenCalled();
+
+          fastForwardClock(500); //1000s left to go
+
+          // timeout will not be at 500 + 3000s = 3500s
+          animate(element, 'blue', doneSpy);
+          expect(doneSpy).not.toHaveBeenCalled();
+          expect(cancelSpy).toHaveBeenCalled();
+
+          cancelSpy.reset();
+
+          // timeout will not be set again since the former animation is longer
+          animate(element, 'green', doneSpy);
+          expect(doneSpy).not.toHaveBeenCalled();
+          expect(cancelSpy).not.toHaveBeenCalled();
+
+          // this will close the animations fully
+          fastForwardClock(3500);
+          $animate.flush();
+
+          expect(doneSpy).toHaveBeenCalled();
+          expect(doneSpy.callCount).toBe(3);
+
+          function fastForwardClock(time) {
+            now += time;
+            $timeout.flush(time);
+          }
+
+          function animate(element, klass, onDone) {
+            var animator = $animateCss(element, { addClass: klass }).start();
+            animator.done(onDone);
+            triggerAnimationStartFrame();
+            return animator;
+          }
+        }));
+
+        it("should not throw an error any pending timeout requests resolve after the element has already been removed",
+          inject(function($animateCss, $$body, $rootElement, $timeout, $animate) {
+
+          var element = jqLite('<div></div>');
+          $rootElement.append(element);
+          $$body.append($rootElement);
+
+          ss.addRule('.red', 'transition:1s linear all;');
+
+          $animateCss(element, { addClass: 'red' }).start();
+          triggerAnimationStartFrame();
+          element.remove();
+
+          expect(function() {
+            $timeout.flush();
+          }).not.toThrow();
         }));
       });
 
@@ -1029,13 +1255,13 @@ describe("ngAnimate $animateCss", function() {
             }
           }));
 
-          return function($document, $rootElement) {
-            jqLite($document[0].body).append($rootElement);
+          return function($$body, $rootElement) {
+            $$body.append($rootElement);
           };
         }));
 
         it("should cache frequent calls to getComputedStyle before the next animation frame kicks in",
-          inject(function($animateCss, $document, $rootElement, $$rAF) {
+          inject(function($animateCss, $document, $rootElement) {
 
           var i, elm, animator;
           for (i = 0; i < 5; i++) {
@@ -1113,12 +1339,68 @@ describe("ngAnimate $animateCss", function() {
       });
     });
 
-    it('should apply a custom temporary class when a non-structural animation is used',
-      inject(function($animateCss, $rootElement, $document) {
+    it('should avoid applying the same cache to an element a follow-up animation is run on the same element',
+      inject(function($animateCss, $rootElement, $$body) {
+
+      function endTransition(element, elapsedTime) {
+        browserTrigger(element, 'transitionend',
+          { timeStamp: Date.now(), elapsedTime: elapsedTime });
+      }
+
+      function startAnimation(element, duration, color) {
+        $animateCss(element, {
+          duration: duration,
+          to: { background: color }
+        }).start();
+        triggerAnimationStartFrame();
+      }
 
       var element = jqLite('<div></div>');
       $rootElement.append(element);
-      jqLite($document[0].body).append($rootElement);
+      $$body.append($rootElement);
+
+      startAnimation(element, 0.5, 'red');
+      expect(element.attr('style')).toContain('transition');
+
+      endTransition(element, 0.5);
+      expect(element.attr('style')).not.toContain('transition');
+
+      startAnimation(element, 0.8, 'blue');
+      expect(element.attr('style')).toContain('transition');
+
+      // Trigger an extra transitionend event that matches the original transition
+      endTransition(element, 0.5);
+      expect(element.attr('style')).toContain('transition');
+
+      endTransition(element, 0.8);
+      expect(element.attr('style')).not.toContain('transition');
+    }));
+
+    it("should clear cache if no animation so follow-up animation on the same element will not be from cache",
+      inject(function($animateCss, $rootElement, $$body, $$rAF) {
+        var element = jqLite('<div class="rclass"></div>');
+        var options = {
+          event: 'enter',
+          structural: true
+        };
+        $rootElement.append(element);
+        $$body.append($rootElement);
+        var animator = $animateCss(element, options);
+        expect(animator.$$willAnimate).toBeFalsy();
+
+        $$rAF.flush();
+        ss.addRule('.ng-enter', '-webkit-animation:3.5s keyframe_animation;' +
+                                        'animation:3.5s keyframe_animation;');
+        animator = $animateCss(element, options);
+        expect(animator.$$willAnimate).toBeTruthy();
+    }));
+
+    it('should apply a custom temporary class when a non-structural animation is used',
+      inject(function($animateCss, $rootElement, $$body) {
+
+      var element = jqLite('<div></div>');
+      $rootElement.append(element);
+      $$body.append($rootElement);
 
       $animateCss(element, {
         event: 'super',
@@ -1134,10 +1416,10 @@ describe("ngAnimate $animateCss", function() {
     describe("structural animations", function() {
       they('should decorate the element with the ng-$prop CSS class',
         ['enter', 'leave', 'move'], function(event) {
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body) {
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           $animateCss(element, {
             event: event,
@@ -1151,10 +1433,10 @@ describe("ngAnimate $animateCss", function() {
 
       they('should decorate the element with the ng-$prop-active CSS class',
         ['enter', 'leave', 'move'], function(event) {
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body) {
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var animator = $animateCss(element, {
             event: event,
@@ -1172,10 +1454,10 @@ describe("ngAnimate $animateCss", function() {
 
       they('should remove the ng-$prop and ng-$prop-active CSS classes from the element once the animation is done',
         ['enter', 'leave', 'move'], function(event) {
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body) {
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var animator = $animateCss(element, {
             event: event,
@@ -1229,10 +1511,10 @@ describe("ngAnimate $animateCss", function() {
       they('should place a CSS transition block after the preparation function to block accidental style changes',
         ['enter', 'leave', 'move', 'addClass', 'removeClass'], function(event) {
 
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body) {
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.cool-animation', 'transition:1.5s linear all;');
           element.addClass('cool-animation');
@@ -1259,10 +1541,10 @@ describe("ngAnimate $animateCss", function() {
       they('should not place a CSS transition block if options.skipBlocking is provided',
         ['enter', 'leave', 'move', 'addClass', 'removeClass'], function(event) {
 
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body, $window) {
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.cool-animation', 'transition:1.5s linear all;');
           element.addClass('cool-animation');
@@ -1277,24 +1559,33 @@ describe("ngAnimate $animateCss", function() {
             data.event = event;
           }
 
+          var blockSpy = spyOn($window, 'blockTransitions').andCallThrough();
+
           data.skipBlocking = true;
           var animator = $animateCss(element, data);
+
+          expect(blockSpy).not.toHaveBeenCalled();
 
           expect(element.attr('style')).toBeFalsy();
           animator.start();
           triggerAnimationStartFrame();
 
           expect(element.attr('style')).toBeFalsy();
+
+          // just to prove it works
+          data.skipBlocking = false;
+          $animateCss(element, { addClass: 'test' });
+          expect(blockSpy).toHaveBeenCalled();
         });
       });
 
       they('should place a CSS transition block after the preparation function even if a duration is provided',
         ['enter', 'leave', 'move', 'addClass', 'removeClass'], function(event) {
 
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body) {
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           ss.addRule('.cool-animation', 'transition:1.5s linear all;');
           element.addClass('cool-animation');
@@ -1325,11 +1616,11 @@ describe("ngAnimate $animateCss", function() {
       });
 
       it('should allow multiple events to be animated at the same time',
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body) {
 
         var element = jqLite('<div></div>');
         $rootElement.append(element);
-        jqLite($document[0].body).append($rootElement);
+        $$body.append($rootElement);
 
         $animateCss(element, {
           event: ['enter', 'leave', 'move'],
@@ -1397,10 +1688,10 @@ describe("ngAnimate $animateCss", function() {
 
       they('should remove the class-$prop-add and class-$prop-active CSS classes from the element once the animation is done',
         ['enter', 'leave', 'move'], function(event) {
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body) {
           var element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var options = {};
           options.event = event;
@@ -1422,7 +1713,7 @@ describe("ngAnimate $animateCss", function() {
 
       they('should allow the class duration styles to be recalculated once started if the CSS classes being applied result new transition styles',
         ['add', 'remove'], function(event) {
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body) {
 
           var element = jqLite('<div></div>');
 
@@ -1437,7 +1728,7 @@ describe("ngAnimate $animateCss", function() {
           }
 
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var options = {};
           options[event + 'Class'] = 'natural-class';
@@ -1458,13 +1749,13 @@ describe("ngAnimate $animateCss", function() {
 
       they('should force the class-based values to be applied early if no options.applyClassEarly is used as an option',
         ['enter', 'leave', 'move'], function(event) {
-        inject(function($animateCss, $rootElement, $document) {
+        inject(function($animateCss, $rootElement, $$body) {
 
           ss.addRule('.blue.ng-' + event, 'transition:2s linear all;');
 
           var element = jqLite('<div class="red"></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
 
           var runner = $animateCss(element, {
             addClass: 'blue',
@@ -1498,12 +1789,53 @@ describe("ngAnimate $animateCss", function() {
 
     describe("options", function() {
       var element;
-      beforeEach(inject(function($rootElement, $document) {
-        jqLite($document[0].body).append($rootElement);
+      beforeEach(module(function() {
+        return function($rootElement, $$body) {
+          $$body.append($rootElement);
 
-        element = jqLite('<div></div>');
-        $rootElement.append(element);
+          element = jqLite('<div></div>');
+          $rootElement.append(element);
+        };
       }));
+
+      describe("[$$skipPreparationClasses]", function() {
+        it('should not apply and remove the preparation classes to the element when true',
+          inject(function($animateCss) {
+
+          var options = {
+            duration: 3000,
+            to: fakeStyle,
+            event: 'event',
+            structural: true,
+            addClass: 'klass',
+            $$skipPreparationClasses: true
+          };
+
+          var animator = $animateCss(element, options);
+
+          expect(element).not.toHaveClass('klass-add');
+          expect(element).not.toHaveClass('ng-event');
+
+          var runner = animator.start();
+          triggerAnimationStartFrame();
+
+          expect(element).not.toHaveClass('klass-add');
+          expect(element).not.toHaveClass('ng-event');
+
+          expect(element).toHaveClass('klass-add-active');
+          expect(element).toHaveClass('ng-event-active');
+
+          element.addClass('klass-add ng-event');
+
+          runner.end();
+
+          expect(element).toHaveClass('klass-add');
+          expect(element).toHaveClass('ng-event');
+
+          expect(element).not.toHaveClass('klass-add-active');
+          expect(element).not.toHaveClass('ng-event-active');
+        }));
+      });
 
       describe("[duration]", function() {
         it("should be applied for a transition directly", inject(function($animateCss, $rootElement) {
@@ -1602,8 +1934,10 @@ describe("ngAnimate $animateCss", function() {
             event: 'enter',
             structural: true
           };
+
           var animator = $animateCss(element, options);
-          expect(animator).toBeFalsy();
+
+          expect(animator.$$willAnimate).toBeFalsy();
         }));
 
         it("should apply a transition and keyframe duration directly if both transitions and keyframe classes are detected",
@@ -1648,7 +1982,6 @@ describe("ngAnimate $animateCss", function() {
           animator.start();
           triggerAnimationStartFrame();
 
-
           var prop = element.css('transition-delay');
           expect(prop).toEqual('500s');
         }));
@@ -1667,7 +2000,7 @@ describe("ngAnimate $animateCss", function() {
           };
 
           var animator = $animateCss(element, options);
-          expect(animator).toBeFalsy();
+          expect(animator.$$willAnimate).toBeFalsy();
         }));
 
         it("should override the delay value present in the CSS class",
@@ -1764,6 +2097,53 @@ describe("ngAnimate $animateCss", function() {
           expect(element.css('transition-delay')).toEqual('10s');
         }));
 
+        it("should apply the keyframe and transition duration value before the CSS classes are applied", function() {
+          var classSpy = jasmine.createSpy();
+          module(function($provide) {
+            $provide.value('$$jqLite', {
+              addClass: function() {
+                classSpy();
+              },
+              removeClass: function() {
+                classSpy();
+              }
+            });
+          });
+          inject(function($animateCss, $rootElement) {
+            element.addClass('element');
+            ss.addRule('.element', '-webkit-animation:3s keyframe_animation;' +
+                                           'animation:3s keyframe_animation;' +
+                                           'transition:5s linear all;');
+
+            var options = {
+              delay: 2,
+              duration: 2,
+              addClass: 'superman',
+              $$skipPreparationClasses: true,
+              structural: true
+            };
+            var animator = $animateCss(element, options);
+
+            expect(element.attr('style') || '').not.toContain('animation-delay');
+            expect(element.attr('style') || '').not.toContain('transition-delay');
+            expect(classSpy).not.toHaveBeenCalled();
+
+            //redefine the classSpy to assert that the delay values have been
+            //applied before the classes are added
+            var assertionsRun = false;
+            classSpy = function() {
+              assertionsRun = true;
+              expect(element.css(prefix + 'animation-delay')).toEqual('2s');
+              expect(element.css('transition-delay')).toEqual('2s');
+              expect(element).not.toHaveClass('superman');
+            };
+
+            animator.start();
+            triggerAnimationStartFrame();
+            expect(assertionsRun).toBe(true);
+          });
+        });
+
         it("should apply blocking before the animation starts, but then apply the detected delay when options.delay is true",
           inject(function($animateCss, $rootElement) {
 
@@ -1781,41 +2161,28 @@ describe("ngAnimate $animateCss", function() {
           animator.start();
           triggerAnimationStartFrame();
 
-          expect(element.css('transition-delay')).toEqual('1s');
+          expect(element.attr('style') || '').not.toContain('transition-delay');
         }));
 
-        they("should consider a negative value when delay:true is used with a $prop animation", {
-          'transition': function() {
-            return {
-              prop: 'transition-delay',
-              css: 'transition:2s linear all; transition-delay: -1s'
-            };
-          },
-          'keyframe': function(prefix) {
-            return {
-              prop: prefix + 'animation-delay',
-              css: prefix + 'animation:2s keyframe_animation; ' + prefix + 'animation-delay: -1s;'
-            };
-          }
-        }, function(testDetailsFactory) {
+        it("should consider a negative value when delay:true is used with a keyframe animation",
           inject(function($animateCss, $rootElement) {
-            var testDetails = testDetailsFactory(prefix);
 
-            ss.addRule('.ng-enter', testDetails.css);
-            var options = {
-              delay: true,
-              event: 'enter',
-              structural: true
-            };
+          ss.addRule('.ng-enter', prefix + 'animation:2s keyframe_animation; ' +
+                                  prefix + 'animation-delay: -1s;');
 
-            var animator = $animateCss(element, options);
+          var options = {
+            delay: true,
+            event: 'enter',
+            structural: true
+          };
 
-            animator.start();
-            triggerAnimationStartFrame();
+          var animator = $animateCss(element, options);
 
-            expect(element.css(testDetails.prop)).toContain('-1s');
-          });
-        });
+          animator.start();
+          triggerAnimationStartFrame();
+
+          expect(element.css(prefix + 'animation-delay')).toContain('-1s');
+        }));
 
         they("should consider a negative value when a negative option delay is provided for a $prop animation", {
           'transition': function() {
@@ -1888,7 +2255,7 @@ describe("ngAnimate $animateCss", function() {
         });
       });
 
-      describe("[transtionStyle]", function() {
+      describe("[transitionStyle]", function() {
         it("should apply the transition directly onto the element and animate accordingly",
           inject(function($animateCss, $rootElement) {
 
@@ -1962,6 +2329,27 @@ describe("ngAnimate $animateCss", function() {
           expect(element.css('transition-duration')).toMatch('5.5s');
           expect(element.css('transition-property')).toMatch('color');
           expect(style).toContain('ease-in');
+        }));
+
+        it("should execute the animation only if there is any provided CSS styling to go with the transition",
+          inject(function($animateCss, $rootElement) {
+
+          var options = {
+            transitionStyle: '6s 4s ease-out all'
+          };
+
+          $animateCss(element, options).start();
+          triggerAnimationStartFrame();
+
+          expect(element.css(prefix + 'transition-delay')).not.toEqual('4s');
+          expect(element.css(prefix + 'transition-duration')).not.toEqual('6s');
+
+          options.to = { color: 'brown' };
+          $animateCss(element, options).start();
+          triggerAnimationStartFrame();
+
+          expect(element.css(prefix + 'transition-delay')).toEqual('4s');
+          expect(element.css(prefix + 'transition-duration')).toEqual('6s');
         }));
       });
 
@@ -2038,6 +2426,23 @@ describe("ngAnimate $animateCss", function() {
           expect(element.css(prefix + 'animation-duration')).toEqual('5.5s');
           expect(element.css(prefix + 'animation-name')).toEqual('my_animation');
         }));
+
+        it("should be able to execute the animation if it is the only provided value",
+          inject(function($animateCss, $rootElement) {
+
+          var options = {
+            keyframeStyle: 'my_animation 5.5s 10s'
+          };
+
+          var animator = $animateCss(element, options);
+
+          animator.start();
+          triggerAnimationStartFrame();
+
+          expect(element.css(prefix + 'animation-delay')).toEqual('10s');
+          expect(element.css(prefix + 'animation-duration')).toEqual('5.5s');
+          expect(element.css(prefix + 'animation-name')).toEqual('my_animation');
+        }));
       });
 
       describe("[from] and [to]", function() {
@@ -2075,7 +2480,7 @@ describe("ngAnimate $animateCss", function() {
           expect(element.css('width')).toBe('25px');
         }));
 
-        it("should apply the union of from and to styles to the element if no animation is run",
+        it("should apply the union of from and to styles to the element if no animation will be run",
           inject(function($animateCss, $rootElement) {
 
           var options = {
@@ -2087,7 +2492,9 @@ describe("ngAnimate $animateCss", function() {
 
           var animator = $animateCss(element, options);
 
-          expect(animator).toBeFalsy();
+          expect(animator.$$willAnimate).toBeFalsy();
+          animator.start();
+
           expect(element.css('width')).toBe('15px');
           expect(element.css('height')).toBe('50px');
         }));
@@ -2114,6 +2521,26 @@ describe("ngAnimate $animateCss", function() {
           expect(element).not.toHaveClass('ng-enter');
           expect(element.css('width')).toBe('5px');
           expect(element.css('height')).toBe('66px');
+        }));
+
+        it("should always apply the from styles before the start function is called even if no transition is detected when started",
+          inject(function($animateCss, $rootElement) {
+
+          ss.addRule('.my-class', 'transition: 0s linear color');
+
+          var options = {
+            addClass: 'my-class',
+            from: { height: '26px' },
+            to: { height: '500px' }
+          };
+
+          var animator = $animateCss(element, options);
+          expect(element.css('height')).toBe('26px');
+
+          animator.start();
+          triggerAnimationStartFrame();
+
+          expect(element.css('height')).toBe('500px');
         }));
 
         it("should apply an inline transition if [to] styles and a duration are provided",
@@ -2220,7 +2647,7 @@ describe("ngAnimate $animateCss", function() {
           };
 
           var animator = $animateCss(element, options);
-          expect(animator).toBeFalsy();
+          expect(animator.$$willAnimate).toBeFalsy();
         }));
 
         it("should apply a transition if [from] styles are provided with a class that is added",
@@ -2245,7 +2672,7 @@ describe("ngAnimate $animateCss", function() {
           };
 
           var animator = $animateCss(element, options);
-          expect(animator).toBeTruthy();
+          expect(animator.$$willAnimate).toBeTruthy();
         }));
 
         it("should not apply an inline transition if no styles are provided",
@@ -2259,7 +2686,7 @@ describe("ngAnimate $animateCss", function() {
           };
 
           var animator = $animateCss(element, options);
-          expect(animator).toBeFalsy();
+          expect(animator.$$willAnimate).toBeFalsy();
         }));
 
         it("should apply a transition duration if the existing transition duration's property value is not 'all'",
@@ -2314,10 +2741,10 @@ describe("ngAnimate $animateCss", function() {
       describe("[easing]", function() {
 
         var element;
-        beforeEach(inject(function($document, $rootElement) {
+        beforeEach(inject(function($$body, $rootElement) {
           element = jqLite('<div></div>');
           $rootElement.append(element);
-          jqLite($document[0].body).append($rootElement);
+          $$body.append($rootElement);
         }));
 
         it("should apply easing to a transition animation if it exists", inject(function($animateCss) {
@@ -2385,13 +2812,13 @@ describe("ngAnimate $animateCss", function() {
 
     describe('SVG', function() {
       it('should properly apply transitions on an SVG element',
-        inject(function($animateCss, $rootScope, $compile, $document, $rootElement) {
+        inject(function($animateCss, $rootScope, $compile, $$body, $rootElement) {
 
         var element = $compile('<svg width="500" height="500">' +
                                  '<circle cx="15" cy="5" r="100" fill="orange" />' +
                                '</svg>')($rootScope);
 
-        jqLite($document[0].body).append($rootElement);
+        $$body.append($rootElement);
         $rootElement.append(element);
 
         $animateCss(element, {
@@ -2417,10 +2844,11 @@ describe("ngAnimate $animateCss", function() {
                              '</svg>');
         var child = element.find('rect');
 
-        $animateCss(child, {
+        var animator = $animateCss(child, {
           removeClass: 'class-of-doom',
           duration: 0
         });
+        animator.start();
 
         var className = child[0].getAttribute('class');
         expect(className).toBe('');

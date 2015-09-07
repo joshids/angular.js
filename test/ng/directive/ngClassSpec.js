@@ -33,6 +33,32 @@ describe('ngClass', function() {
   }));
 
 
+  it('should add new and remove old classes with same names as Object.prototype properties dynamically', inject(function($rootScope, $compile) {
+    /* jshint -W001 */
+    element = $compile('<div class="existing" ng-class="dynClass"></div>')($rootScope);
+    $rootScope.dynClass = { watch: true, hasOwnProperty: true, isPrototypeOf: true };
+    $rootScope.$digest();
+    expect(element.hasClass('existing')).toBe(true);
+    expect(element.hasClass('watch')).toBe(true);
+    expect(element.hasClass('hasOwnProperty')).toBe(true);
+    expect(element.hasClass('isPrototypeOf')).toBe(true);
+
+    $rootScope.dynClass.watch = false;
+    $rootScope.$digest();
+    expect(element.hasClass('existing')).toBe(true);
+    expect(element.hasClass('watch')).toBe(false);
+    expect(element.hasClass('hasOwnProperty')).toBe(true);
+    expect(element.hasClass('isPrototypeOf')).toBe(true);
+
+    delete $rootScope.dynClass;
+    $rootScope.$digest();
+    expect(element.hasClass('existing')).toBe(true);
+    expect(element.hasClass('watch')).toBe(false);
+    expect(element.hasClass('hasOwnProperty')).toBe(false);
+    expect(element.hasClass('isPrototypeOf')).toBe(false);
+  }));
+
+
   it('should support adding multiple classes via an array', inject(function($rootScope, $compile) {
     element = $compile('<div class="existing" ng-class="[\'A\', \'B\']"></div>')($rootScope);
     $rootScope.$digest();
@@ -442,12 +468,12 @@ describe('ngClass animations', function() {
         };
       });
     });
-    inject(function($compile, $rootScope, $browser, $rootElement, $animate, $timeout, $document, $$rAF) {
+    inject(function($compile, $rootScope, $browser, $rootElement, $animate, $timeout, $$body) {
       $animate.enabled(true);
 
       $rootScope.val = 'crazy';
       element = angular.element('<div ng-class="val"></div>');
-      jqLite($document[0].body).append($rootElement);
+      $$body.append($rootElement);
 
       $compile(element)($rootScope);
 
@@ -462,7 +488,7 @@ describe('ngClass animations', function() {
       expect(enterComplete).toBe(false);
 
       $rootScope.$digest();
-      $$rAF.flush();
+      $animate.flush();
       $rootScope.$digest();
 
       expect(element.hasClass('crazy')).toBe(true);
