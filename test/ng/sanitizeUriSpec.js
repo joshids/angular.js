@@ -1,3 +1,4 @@
+/* jshint scripturl: true */
 'use strict';
 
 describe('sanitizeUri', function() {
@@ -12,7 +13,7 @@ describe('sanitizeUri', function() {
       };
       sanitizeImg = function(uri) {
         return $$sanitizeUri(uri, true);
-      }
+      };
     });
   });
 
@@ -29,19 +30,17 @@ describe('sanitizeUri', function() {
       expect(sanitizeImg(testUrl)).toBe('unsafe:javascript:doEvilStuff()');
     });
 
+    it('should sanitize javascript: urls with comments', function() {
+      testUrl = "javascript:alert(1)//data:image/";
+      expect(sanitizeImg(testUrl)).toBe('unsafe:javascript:alert(1)//data:image/');
+    });
+
     it('should sanitize non-image data: urls', function() {
       testUrl = "data:application/javascript;charset=US-ASCII,alert('evil!');";
       expect(sanitizeImg(testUrl)).toBe("unsafe:data:application/javascript;charset=US-ASCII,alert('evil!');");
 
       testUrl = "data:,foo";
       expect(sanitizeImg(testUrl)).toBe("unsafe:data:,foo");
-    });
-
-    it('should not sanitize data: URIs for images', function() {
-      // image data uri
-      // ref: http://probablyprogramming.com/2009/03/15/the-tiniest-gif-ever
-      testUrl = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
-      expect(sanitizeImg(testUrl)).toBe('data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==');
     });
 
     it('should sanitize mailto: urls', function() {
@@ -113,6 +112,17 @@ describe('sanitizeUri', function() {
       expect(sanitizeImg(testUrl)).toBe('file:///foo/bar.html');
     });
 
+    it('should not sanitize blob urls', function() {
+      testUrl = "blob:///foo/bar.html";
+      expect(sanitizeImg(testUrl)).toBe('blob:///foo/bar.html');
+    });
+
+    it('should not sanitize data: URIs for images', function() {
+      // image data uri
+      // ref: http://probablyprogramming.com/2009/03/15/the-tiniest-gif-ever
+      testUrl = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+      expect(sanitizeImg(testUrl)).toBe('data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==');
+    });
 
     it('should allow reconfiguration of the src whitelist', function() {
       var returnVal;
@@ -219,10 +229,10 @@ describe('sanitizeUri', function() {
       expect(returnVal).toBe(sanitizeUriProvider);
 
       testUrl = "javascript:doEvilStuff()";
-        expect(sanitizeHref(testUrl)).toBe('javascript:doEvilStuff()');
+      expect(sanitizeHref(testUrl)).toBe('javascript:doEvilStuff()');
 
       testUrl = "http://recon/figured";
-        expect(sanitizeHref(testUrl)).toBe('unsafe:http://recon/figured');
+      expect(sanitizeHref(testUrl)).toBe('unsafe:http://recon/figured');
     });
 
   });

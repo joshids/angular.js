@@ -1,3 +1,5 @@
+'use strict';
+
 module.exports = function(config, specificOptions) {
   config.set({
     frameworks: ['jasmine'],
@@ -7,7 +9,7 @@ module.exports = function(config, specificOptions) {
     browsers: ['Chrome'],
     browserDisconnectTimeout: 10000,
     browserDisconnectTolerance: 2,
-    browserNoActivityTimeout: 20000,
+    browserNoActivityTimeout: 30000,
 
 
     // SauceLabs config for local development.
@@ -15,7 +17,7 @@ module.exports = function(config, specificOptions) {
       testName: specificOptions.testName || 'AngularJS',
       startConnect: true,
       options: {
-        'selenium-version': '2.37.0'
+        'selenium-version': '2.41.0'
       }
     },
 
@@ -32,23 +34,18 @@ module.exports = function(config, specificOptions) {
     customLaunchers: {
       'SL_Chrome': {
         base: 'SauceLabs',
-        browserName: 'chrome'
+        browserName: 'chrome',
+        version: '39'
       },
       'SL_Firefox': {
         base: 'SauceLabs',
         browserName: 'firefox',
-        version: '26'
+        version: '31'
       },
       'SL_Safari': {
         base: 'SauceLabs',
         browserName: 'safari',
-        platform: 'OS X 10.9',
-        version: '7'
-      },
-      'SL_IE_8': {
-        base: 'SauceLabs',
-        browserName: 'internet explorer',
-        platform: 'Windows 7',
+        platform: 'OS X 10.10',
         version: '8'
       },
       'SL_IE_9': {
@@ -69,31 +66,30 @@ module.exports = function(config, specificOptions) {
         platform: 'Windows 8.1',
         version: '11'
       },
+      'SL_iOS': {
+        base: "SauceLabs",
+        browserName: "iphone",
+        platform: "OS X 10.10",
+        version: "8.1"
+      },
 
       'BS_Chrome': {
         base: 'BrowserStack',
         browser: 'chrome',
         os: 'OS X',
-        os_version: 'Mountain Lion'
+        os_version: 'Yosemite'
       },
       'BS_Safari': {
         base: 'BrowserStack',
         browser: 'safari',
         os: 'OS X',
-        os_version: 'Mountain Lion'
+        os_version: 'Yosemite'
       },
       'BS_Firefox': {
         base: 'BrowserStack',
         browser: 'firefox',
         os: 'Windows',
         os_version: '8'
-      },
-      'BS_IE_8': {
-        base: 'BrowserStack',
-        browser: 'ie',
-        browser_version: '8.0',
-        os: 'Windows',
-        os_version: '7'
       },
       'BS_IE_9': {
         base: 'BrowserStack',
@@ -115,6 +111,12 @@ module.exports = function(config, specificOptions) {
         browser_version: '11.0',
         os: 'Windows',
         os_version: '8.1'
+      },
+      'BS_iOS': {
+        base: 'BrowserStack',
+        device: 'iPhone 6',
+        os: 'ios',
+        os_version: '8.0'
       }
     }
   });
@@ -124,24 +126,30 @@ module.exports = function(config, specificOptions) {
     var buildLabel = 'TRAVIS #' + process.env.TRAVIS_BUILD_NUMBER + ' (' + process.env.TRAVIS_BUILD_ID + ')';
 
     config.logLevel = config.LOG_DEBUG;
-    config.transports = ['websocket', 'xhr-polling'];
+    // Karma (with socket.io 1.x) buffers by 50 and 50 tests can take a long time on IEs;-)
+    config.browserNoActivityTimeout = 120000;
 
     config.browserStack.build = buildLabel;
     config.browserStack.startTunnel = false;
+    config.browserStack.tunnelIdentifier = process.env.TRAVIS_JOB_NUMBER;
 
     config.sauceLabs.build = buildLabel;
     config.sauceLabs.startConnect = false;
     config.sauceLabs.tunnelIdentifier = process.env.TRAVIS_JOB_NUMBER;
-
-    // TODO(vojta): remove once SauceLabs supports websockets.
-    // This speeds up the capturing a bit, as browsers don't even try to use websocket.
-    config.transports = ['xhr-polling'];
+    config.sauceLabs.recordScreenshots = true;
 
     // Debug logging into a file, that we print out at the end of the build.
     config.loggers.push({
       type: 'file',
       filename: process.env.LOGS_DIR + '/' + (specificOptions.logFile || 'karma.log')
     });
+
+    if (process.env.BROWSER_PROVIDER === 'saucelabs' || !process.env.BROWSER_PROVIDER) {
+      // Allocating a browser can take pretty long (eg. if we are out of capacity and need to wait
+      // for another build to finish) and so the `captureTimeout` typically kills
+      // an in-queue-pending request, which makes no sense.
+      config.captureTimeout = 0;
+    }
   }
 
 
@@ -169,7 +177,7 @@ module.exports = function(config, specificOptions) {
 
       // ignore web-server's 404s
       if (log.categoryName === 'web-server' && log.level.levelStr === config.LOG_WARN &&
-          IGNORED_404.some(function(ignoredLog) {return msg.indexOf(ignoredLog) !== -1})) {
+          IGNORED_404.some(function(ignoredLog) {return msg.indexOf(ignoredLog) !== -1;})) {
         return;
       }
 

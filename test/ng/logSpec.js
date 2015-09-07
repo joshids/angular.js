@@ -1,7 +1,8 @@
+/* global $LogProvider: false */
 'use strict';
 
 function initService(debugEnabled) {
-    return module(function($logProvider){
+    return module(function($logProvider) {
       $logProvider.debugEnabled(debugEnabled);
     });
   }
@@ -11,7 +12,7 @@ describe('$log', function() {
 
 
 
-  beforeEach(module(function($provide){
+  beforeEach(module(function($provide) {
     $window = {navigator: {}, document: {}};
     logger = '';
     log = function() { logger+= 'log;'; };
@@ -26,7 +27,7 @@ describe('$log', function() {
   }));
 
   it('should use console if present', inject(
-    function(){
+    function() {
       $window.console = {log: log,
                          warn: warn,
                          info: info,
@@ -45,7 +46,7 @@ describe('$log', function() {
 
 
   it('should use console.log() if other not present', inject(
-    function(){
+    function() {
       $window.console = {log: log};
     },
     function($log) {
@@ -116,26 +117,26 @@ describe('$log', function() {
     );
   });
 
-  describe("$log.debug", function () {
+  describe("$log.debug", function() {
 
-	  beforeEach(initService(false));
+    beforeEach(initService(false));
 
-	  it("should skip debugging output if disabled", inject(
-	    function(){
-	      $window.console = {log: log,
-	                         warn: warn,
-	                         info: info,
-	                         error: error,
-	                         debug: debug};
-	    },
-	    function($log) {
-	      $log.log();
-	      $log.warn();
-	      $log.info();
-	      $log.error();
-	      $log.debug();
-	      expect(logger).toEqual('log;warn;info;error;');
-	    }
+    it("should skip debugging output if disabled", inject(
+      function() {
+        $window.console = {log: log,
+                           warn: warn,
+                           info: info,
+                           error: error,
+                           debug: debug};
+      },
+      function($log) {
+        $log.log();
+        $log.warn();
+        $log.info();
+        $log.error();
+        $log.debug();
+        expect(logger).toEqual('log;warn;info;error;');
+      }
   ));
 
   });

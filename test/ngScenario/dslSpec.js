@@ -56,7 +56,7 @@ describe("angular.scenario.dsl", function() {
     jqLite($window.document).empty();
   }));
 
-  afterEach(function(){
+  afterEach(function() {
     jqLite($window.document).removeData('$injector');
   });
 
@@ -248,8 +248,8 @@ describe("angular.scenario.dsl", function() {
             '  <option value=D>one</option>' +
             '</select>'
           );
-          $root.dsl.select('test').option('one');
-          expect(doc.find('[ng-model="test"]').val()).toEqual('D');
+        $root.dsl.select('test').option('one');
+        expect(doc.find('[ng-model="test"]').val()).toEqual('D');
       });
 
       it('should select option by name if no exact match and name contains value', function() {
@@ -260,8 +260,8 @@ describe("angular.scenario.dsl", function() {
             '  <option value=C>thirty one</option>' +
             '</select>'
           );
-          $root.dsl.select('test').option('one');
-          expect(doc.find('[ng-model="test"]').val()).toEqual('A');
+        $root.dsl.select('test').option('one');
+        expect(doc.find('[ng-model="test"]').val()).toEqual('A');
       });
 
       it('should select multiple options', function() {
@@ -282,15 +282,15 @@ describe("angular.scenario.dsl", function() {
         expect($root.futureError).toMatch(/did not match/);
       });
 
-      it('should fail to select an option that does not exist', function(){
-          doc.append(
-              '<select ng-model="test">' +
-              '  <option value=A>one</option>' +
-              '  <option value=B selected>two</option>' +
-              '</select>'
-            );
-            $root.dsl.select('test').option('three');
-            expect($root.futureError).toMatch(/not found/);
+      it('should fail to select an option that does not exist', function() {
+        doc.append(
+            '<select ng-model="test">' +
+            '  <option value=A>one</option>' +
+            '  <option value=B selected>two</option>' +
+            '</select>'
+          );
+        $root.dsl.select('test').option('three');
+        expect($root.futureError).toMatch(/not found/);
       });
     });
 
@@ -624,7 +624,7 @@ describe("angular.scenario.dsl", function() {
       });
 
       it('should match bindings by substring match', function() {
-        compile('<pre ng-bind="foo.bar | filter"></pre>', 'binding value');
+        compile('<pre ng-bind="foo.bar | lowercase"></pre>', 'binding value');
         $root.dsl.binding('foo . bar');
         expect($root.futureResult).toEqual('binding value');
       });

@@ -1,20 +1,5 @@
 {
-  "bitwise": true,
-  "immed": true,
-  "newcap": true,
-  "noarg": true,
-  "noempty": true,
-  "nonew": true,
-  "trailing": true,
-  "maxlen": 200,
-  "boss": true,
-  "eqnull": true,
-  "expr": true,
-  "globalstrict": true,
-  "laxbreak": true,
-  "loopfunc": true,
-  "sub": true,
-  "undef": true,
+  "extends": "../.jshintrc-base",
   "browser": true,
   "globals": {
     /* auto/injector.js */
@@ -26,6 +11,7 @@
     "jqLite": false,
     "jQuery": false,
     "slice": false,
+    "splice": false,
     "push": false,
     "toString": false,
     "ngMinErr": false,
@@ -33,22 +19,23 @@
     "angularModule": false,
     "nodeName_": false,
     "uid": false,
+    "toDebugString": false,
 
+    "REGEX_STRING_REGEXP" : false,
     "lowercase": false,
     "uppercase": false,
     "manualLowercase": false,
     "manualUppercase": false,
-    "nodeName_": false,
     "isArrayLike": false,
     "forEach": false,
-    "sortedKeys": false,
     "forEachSorted": false,
     "reverseParams": false,
     "nextUid": false,
     "setHashKey": false,
     "extend": false,
-    "int": false,
+    "toInt": false,
     "inherit": false,
+    "merge": false,
     "noop": false,
     "identity": false,
     "valueFn": false,
@@ -64,16 +51,16 @@
     "isWindow": false,
     "isScope": false,
     "isFile": false,
+    "isFormData": false,
+    "isBlob": false,
     "isBoolean": false,
+    "isPromiseLike": false,
     "trim": false,
+    "escapeForRegexp": false,
     "isElement": false,
     "makeMap": false,
-    "map": false,
-    "size": false,
     "includes": false,
-    "indexOf": false,
     "arrayRemove": false,
-    "isLeafNode": false,
     "copy": false,
     "shallowCopy": false,
     "equals": false,
@@ -84,7 +71,8 @@
     "toJsonReplacer": false,
     "toJson": false,
     "fromJson": false,
-    "toBoolean": false,
+    "convertTimezoneToLocal": false,
+    "timezoneToOffset": false,
     "startingTag": false,
     "tryDecodeURIComponent": false,
     "parseKeyValue": false,
@@ -93,19 +81,38 @@
     "encodeUriQuery": false,
     "angularInit": false,
     "bootstrap": false,
+    "getTestability": false,
     "snake_case": false,
     "bindJQuery": false,
     "assertArg": false,
     "assertArgFn": false,
     "assertNotHasOwnProperty": false,
     "getter": false,
-    "getBlockElements": false,
+    "getBlockNodes": false,
+    "createMap": false,
+    "VALIDITY_STATE_PROPERTY": false,
+    "reloadWithDebugInfo": false,
+
+    "skipDestroyOnNextJQueryCleanData": true,
+
+    "NODE_TYPE_ELEMENT": false,
+    "NODE_TYPE_ATTRIBUTE": false,
+    "NODE_TYPE_TEXT": false,
+    "NODE_TYPE_COMMENT": false,
+    "NODE_TYPE_COMMENT": false,
+    "NODE_TYPE_DOCUMENT": false,
+    "NODE_TYPE_DOCUMENT_FRAGMENT": false,
+
+    "defaultHttpResponseTransform": false,
+
+    /* filters.js */
+    "getFirstThursdayOfYear": false,
 
     /* AngularPublic.js */
     "version": false,
     "publishExternalAPI": false,
 
-    /* minerr.js */
+    /* minErr.js */
     "minErr": false,
 
     /* loader.js */
@@ -113,6 +120,7 @@
 
     /* jqLite.js */
     "BOOLEAN_ATTR": false,
+    "ALIASED_ATTR": false,
     "jqNextId": false,
     "camelCase": false,
     "jqLitePatchJQueryRemove": false,
@@ -129,11 +137,16 @@
     "jqLiteAddNodes": false,
     "jqLiteController": false,
     "jqLiteInheritedData": false,
+    "jqLiteBuildFragment": false,
+    "jqLiteParseHTML": false,
     "getBooleanAttrName": false,
+    "getAliasedAttrName": false,
     "createEventHandler": false,
     "JQLitePrototype": false,
     "addEventListenerFn": false,
     "removeEventListenerFn": false,
+    "jqLiteIsTextNode": false,
+    "jqLiteDocumentLoaded": false,
 
     /* apis.js */
     "hashKey": false,
@@ -142,6 +155,9 @@
     /* urlUtils.js */
     "urlResolve": false,
     "urlIsSameOrigin": false,
+
+    /* ng/controller.js */
+    "identifierForController": false,
 
     /* ng/compile.js */
     "directiveNormalize": false,

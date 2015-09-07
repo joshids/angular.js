@@ -1,31 +1,15 @@
-exports.config = {
-  allScriptsTimeout: 11000,
+'use strict';
 
-  specs: [
-    'build/docs/ptore2e/**/*.js',
-    'test/e2e/docsAppE2E.js'
-  ],
+var config = require('./protractor-shared-conf').config;
 
-  capabilities: {
-    'browserName': 'chrome'
-  },
+config.specs = [
+  'test/e2e/tests/**/*.js',
+  'build/docs/ptore2e/**/*.js',
+  'docs/app/e2e/**/*.scenario.js'
+];
 
-  baseUrl: 'http://localhost:8000/build/docs/',
-
-  framework: 'jasmine',
-
-  onPrepare: function() {
-    // Disable animations so e2e tests run more quickly
-    var disableNgAnimate = function() {
-      angular.module('disableNgAnimate', []).run(function($animate) {
-        $animate.enabled(false);
-      });
-    };
-
-    browser.addMockModule('disableNgAnimate', disableNgAnimate);
-  },
-
-  jasmineNodeOpts: {
-    defaultTimeoutInterval: 30000
-  }
+config.capabilities = {
+  browserName: 'chrome',
 };
+
+exports.config = config;

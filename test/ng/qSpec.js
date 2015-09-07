@@ -1,3 +1,4 @@
+/* global qFactory: false */
 'use strict';
 
 /**
@@ -40,7 +41,7 @@ describe('q', function() {
   }
 
   function _argumentsToString(args) {
-    return map(sliceArgs(args), _argToString).join(',');
+    return sliceArgs(args).map(_argToString).join(',');
   }
 
   // Help log invocation of success(), finally(), progress() and error()
@@ -72,7 +73,7 @@ describe('q', function() {
     name = 'success' + (name || '');
     return function() {
       return _logInvocation(name, arguments, (returnValDefined ? returnVal : arguments[0]), throwReturnVal);
-    }
+    };
   }
 
   /**
@@ -88,7 +89,7 @@ describe('q', function() {
     name = 'finally' + (name || '');
     return function() {
       return _logInvocation(name, arguments, (returnValDefined ? returnVal : arguments[0]), throwReturnVal);
-    }
+    };
   }
 
   /**
@@ -104,7 +105,7 @@ describe('q', function() {
     name = 'progress' + (name || '');
     return function() {
       return _logInvocation(name, arguments, (returnValDefined ? returnVal : arguments[0]), throwReturnVal);
-    }
+    };
   }
 
   /**
@@ -125,7 +126,7 @@ describe('q', function() {
       } else {
         return _logInvocation(name, arguments, returnVal, throwReturnVal);
       }
-    }
+    };
   }
 
   /** helper for synchronous resolution of deferred */
@@ -169,21 +170,21 @@ describe('q', function() {
         forEach(queue, function(task) {
           try {
             task();
-          } catch(e) {
-            if ( mockNextTick.logExceptions ) {
+          } catch (e) {
+            if (mockNextTick.logExceptions) {
               dump('exception in mockNextTick:', e, e.name, e.message, task);
             }
           }
         });
       }
     }
-  }
+  };
 
 
   beforeEach(function() {
     q = qFactory(mockNextTick.nextTick, noop),
     defer = q.defer;
-    deferred =  defer()
+    deferred =  defer();
     promise = deferred.promise;
     log = [];
     mockNextTick.queue = [];
@@ -192,6 +193,604 @@ describe('q', function() {
 
   afterEach(function() {
     expect(mockNextTick.queue.length).toBe(0);
+  });
+
+
+  describe('$Q', function() {
+    var resolve, reject, resolve2, reject2;
+    var createPromise = function() {
+      return q(function(resolveFn, rejectFn) {
+        if (resolve === null) {
+          resolve = resolveFn;
+          reject = rejectFn;
+        } else if (resolve2 === null) {
+          resolve2 = resolveFn;
+          reject2 = rejectFn;
+        }
+      });
+    };
+
+    afterEach(function() {
+      resolve = reject = resolve2 = reject2 = null;
+    });
+
+    it('should return a Promise', function() {
+      var promise = q(noop);
+      expect(typeof promise.then).toBe('function');
+      expect(typeof promise.catch).toBe('function');
+      expect(typeof promise.finally).toBe('function');
+    });
+
+
+    describe('resolve', function() {
+      it('should fulfill the promise and execute all success callbacks in the registration order',
+          function() {
+        var promise = createPromise();
+        promise.then(success(1), error());
+        promise.then(success(2), error());
+        expect(logStr()).toBe('');
+
+        resolve('foo');
+        mockNextTick.flush();
+        expect(logStr()).toBe('success1(foo)->foo; success2(foo)->foo');
+      });
+
+
+      it('should do nothing if a promise was previously resolved', function() {
+        var promise = createPromise();
+        promise.then(success(), error());
+        expect(logStr()).toBe('');
+
+        resolve('foo');
+        mockNextTick.flush();
+        expect(logStr()).toBe('success(foo)->foo');
+
+        log = [];
+        resolve('bar');
+        reject('baz');
+        expect(mockNextTick.queue.length).toBe(0);
+        expect(logStr()).toBe('');
+      });
+
+
+      it('should do nothing if a promise was previously rejected', function() {
+        var promise = createPromise();
+        promise.then(success(), error());
+        expect(logStr()).toBe('');
+
+        reject('foo');
+        mockNextTick.flush();
+        expect(logStr()).toBe('error(foo)->reject(foo)');
+
+        log = [];
+        resolve('bar');
+        reject('baz');
+        expect(mockNextTick.queue.length).toBe(0);
+        expect(logStr()).toBe('');
+      });
+
+
+      it('should allow deferred resolution with a new promise', function() {
+        var promise = createPromise();
+
+        promise.then(success(), error());
+
+        resolve(createPromise());
+        expect(logStr()).toBe('');
+
+        resolve2('foo');
+        mockNextTick.flush();
+        expect(logStr()).toBe('success(foo)->foo');
+      });
+
+
+      it('should call the callback in the next turn', function() {
+        var promise = createPromise();
+        promise.then(success());
+        expect(logStr()).toBe('');
+
+        resolve('foo');
+        expect(logStr()).toBe('');
+
+        mockNextTick.flush();
+        expect(logStr()).toBe('success(foo)->foo');
+      });
+
+
+      it('should not break if a callbacks registers another callback', function() {
+        var promise = createPromise();
+        promise.then(function() {
+          log.push('outer');
+          promise.then(function() {
+            log.push('inner');
+          });
+        });
+
+        resolve('foo');
+        expect(logStr()).toBe('');
+
+        mockNextTick.flush();
+        expect(logStr()).toBe('outer; inner');
+      });
+
+
+      it('should not break if a callbacks tries to resolve the deferred again', function() {
+        var promise = createPromise();
+        promise.then(function(val) {
+          log.push('then1(' + val + ')->resolve(bar)');
+          deferred.resolve('bar'); // nop
+        });
+
+        promise.then(success(2));
+
+        resolve('foo');
+        expect(logStr()).toBe('');
+
+        mockNextTick.flush();
+        expect(logStr()).toBe('then1(foo)->resolve(bar); success2(foo)->foo');
+      });
+    });
+
+
+    describe('reject', function() {
+      it('should reject the promise and execute all error callbacks in the registration order',
+          function() {
+        var promise = createPromise();
+        promise.then(success(), error(1));
+        promise.then(success(), error(2));
+        expect(logStr()).toBe('');
+
+        reject('foo');
+        mockNextTick.flush();
+        expect(logStr()).toBe('error1(foo)->reject(foo); error2(foo)->reject(foo)');
+      });
+
+
+      it('should do nothing if a promise was previously resolved', function() {
+        var promise = createPromise();
+        promise.then(success(1), error(1));
+        expect(logStr()).toBe('');
+
+        resolve('foo');
+        mockNextTick.flush();
+        expect(logStr()).toBe('success1(foo)->foo');
+
+        log = [];
+        reject('bar');
+        resolve('baz');
+        expect(mockNextTick.queue.length).toBe(0);
+        expect(logStr()).toBe('');
+
+        promise.then(success(2), error(2));
+        expect(logStr()).toBe('');
+        mockNextTick.flush();
+        expect(logStr()).toBe('success2(foo)->foo');
+      });
+
+
+      it('should do nothing if a promise was previously rejected', function() {
+        var promise = createPromise();
+        promise.then(success(1), error(1));
+        expect(logStr()).toBe('');
+
+        reject('foo');
+        mockNextTick.flush();
+        expect(logStr()).toBe('error1(foo)->reject(foo)');
+
+        log = [];
+        reject('bar');
+        resolve('baz');
+        expect(mockNextTick.queue.length).toBe(0);
+        expect(logStr()).toBe('');
+
+        promise.then(success(2), error(2));
+        expect(logStr()).toBe('');
+        mockNextTick.flush();
+        expect(logStr()).toBe('error2(foo)->reject(foo)');
+      });
+
+
+      it('should not defer rejection with a new promise', function() {
+        var promise = createPromise();
+        promise.then(success(), error());
+
+        reject(createPromise());
+        mockNextTick.flush();
+        expect(logStr()).toBe('error({})->reject({})');
+      });
+
+
+      it('should call the error callback in the next turn', function() {
+        var promise = createPromise();
+        promise.then(success(), error());
+        expect(logStr()).toBe('');
+
+        reject('foo');
+        expect(logStr()).toBe('');
+
+        mockNextTick.flush();
+        expect(logStr()).toBe('error(foo)->reject(foo)');
+      });
+
+
+      it('should support non-bound execution', function() {
+        var promise = createPromise();
+        promise.then(success(), error());
+        reject('detached');
+        mockNextTick.flush();
+        expect(logStr()).toBe('error(detached)->reject(detached)');
+      });
+    });
+
+
+    describe('promise', function() {
+      describe('then', function() {
+        it('should allow registration of a success callback without an errback or progressback ' +
+          'and resolve', function() {
+          var promise = createPromise();
+          promise.then(success());
+          resolve('foo');
+          mockNextTick.flush();
+          expect(logStr()).toBe('success(foo)->foo');
+        });
+
+
+        it('should allow registration of a success callback without an errback and reject',
+            function() {
+          var promise = createPromise();
+          promise.then(success());
+          reject('foo');
+          mockNextTick.flush();
+          expect(logStr()).toBe('');
+        });
+
+
+        it('should allow registration of an errback without a success or progress callback and ' +
+          ' reject', function() {
+          var promise = createPromise();
+          promise.then(null, error());
+          reject('oops!');
+          mockNextTick.flush();
+          expect(logStr()).toBe('error(oops!)->reject(oops!)');
+        });
+
+
+        it('should allow registration of an errback without a success callback and resolve',
+            function() {
+          var promise = createPromise();
+          promise.then(null, error());
+          resolve('done');
+          mockNextTick.flush();
+          expect(logStr()).toBe('');
+        });
+
+
+        it('should allow registration of an progressback without a success callback and resolve',
+            function() {
+          var promise = createPromise();
+          promise.then(null, null, progress());
+          resolve('done');
+          mockNextTick.flush();
+          expect(logStr()).toBe('');
+        });
+
+
+        it('should allow registration of an progressback without a error callback and reject',
+            function() {
+          var promise = createPromise();
+          promise.then(null, null, progress());
+          reject('oops!');
+          mockNextTick.flush();
+          expect(logStr()).toBe('');
+        });
+
+
+        it('should resolve all callbacks with the original value', function() {
+          var promise = createPromise();
+          promise.then(success('A', 'aVal'), error(), progress());
+          promise.then(success('B', 'bErr', true), error(), progress());
+          promise.then(success('C', q.reject('cReason')), error(), progress());
+          promise.then(success('D', q.reject('dReason'), true), error(), progress());
+          promise.then(success('E', 'eVal'), error(), progress());
+
+          expect(logStr()).toBe('');
+          resolve('yup');
+          mockNextTick.flush();
+          expect(log).toEqual(['successA(yup)->aVal',
+                               'successB(yup)->throw(bErr)',
+                               'successC(yup)->{}',
+                               'successD(yup)->throw({})',
+                               'successE(yup)->eVal']);
+        });
+
+
+        it('should reject all callbacks with the original reason', function() {
+          var promise = createPromise();
+          promise.then(success(), error('A', 'aVal'), progress());
+          promise.then(success(), error('B', 'bEr', true), progress());
+          promise.then(success(), error('C', q.reject('cReason')), progress());
+          promise.then(success(), error('D', 'dVal'), progress());
+
+          expect(logStr()).toBe('');
+          reject('noo!');
+          mockNextTick.flush();
+          expect(logStr()).toBe('errorA(noo!)->aVal; errorB(noo!)->throw(bEr); errorC(noo!)->{}; errorD(noo!)->dVal');
+        });
+
+
+        it('should propagate resolution and rejection between dependent promises', function() {
+          var promise = createPromise();
+          promise.then(success(1, 'x'),       error('1')).
+                  then(success(2, 'y', true), error('2')).
+                  then(success(3),            error(3, 'z', true)).
+                  then(success(4),            error(4, 'done')).
+                  then(success(5),            error(5));
+
+          expect(logStr()).toBe('');
+          resolve('sweet!');
+          mockNextTick.flush();
+          expect(log).toEqual(['success1(sweet!)->x',
+                               'success2(x)->throw(y)',
+                               'error3(y)->throw(z)',
+                               'error4(z)->done',
+                               'success5(done)->done']);
+        });
+
+
+        it('should reject a derived promise if an exception is thrown while resolving its parent',
+            function() {
+          var promise = createPromise();
+          promise.then(success(1, 'oops', true), error(1)).
+                  then(success(2),               error(2));
+          resolve('done!');
+          mockNextTick.flush();
+          expect(logStr()).toBe('success1(done!)->throw(oops); error2(oops)->reject(oops)');
+        });
+
+
+        it('should reject a derived promise if an exception is thrown while rejecting its parent',
+            function() {
+          var promise = createPromise();
+          promise.then(null,       error(1, 'oops', true)).
+                  then(success(2), error(2));
+          reject('timeout');
+          mockNextTick.flush();
+          expect(logStr()).toBe('error1(timeout)->throw(oops); error2(oops)->reject(oops)');
+        });
+
+
+        it('should call success callback in the next turn even if promise is already resolved',
+            function() {
+          var promise = createPromise();
+          resolve('done!');
+
+          promise.then(success());
+          expect(logStr()).toBe('');
+
+          mockNextTick.flush();
+          expect(log).toEqual(['success(done!)->done!']);
+        });
+
+
+        it('should call error callback in the next turn even if promise is already rejected',
+            function() {
+          var promise = createPromise();
+          reject('oops!');
+
+          promise.then(null, error());
+          expect(logStr()).toBe('');
+
+          mockNextTick.flush();
+          expect(log).toEqual(['error(oops!)->reject(oops!)']);
+        });
+
+        it('should forward success resolution when success callbacks are not functions', function() {
+          var promise = createPromise();
+          resolve('yay!');
+
+          promise.then(1).
+                  then(null).
+                  then({}).
+                  then('gah!').
+                  then([]).
+                  then(success());
+
+          expect(logStr()).toBe('');
+
+          mockNextTick.flush();
+          expect(log).toEqual(['success(yay!)->yay!']);
+        });
+
+        it('should forward error resolution when error callbacks are not functions', function() {
+          var promise = createPromise();
+          reject('oops!');
+
+          promise.then(null, 1).
+                  then(null, null).
+                  then(null, {}).
+                  then(null, 'gah!').
+                  then(null, []).
+                  then(null, error());
+
+          expect(logStr()).toBe('');
+
+          mockNextTick.flush();
+          expect(log).toEqual(['error(oops!)->reject(oops!)']);
+        });
+      });
+
+
+      describe('finally', function() {
+        it('should not take an argument',
+            function() {
+          var promise = createPromise();
+          promise['finally'](fin(1));
+          resolve('foo');
+          mockNextTick.flush();
+          expect(logStr()).toBe('finally1()');
+        });
+
+        describe("when the promise is fulfilled", function() {
+          it('should call the callback',
+              function() {
+            var promise = createPromise();
+            promise.then(success(1))['finally'](fin(1));
+            resolve('foo');
+            mockNextTick.flush();
+            expect(logStr()).toBe('success1(foo)->foo; finally1()');
+          });
+
+          it('should fulfill with the original value',
+              function() {
+            var promise = createPromise();
+            promise['finally'](fin('B', 'b'), error('B')).
+                    then(success('BB', 'bb'), error('BB'));
+            resolve('RESOLVED_VAL');
+            mockNextTick.flush();
+            expect(log).toEqual(['finallyB()->b',
+                                 'successBB(RESOLVED_VAL)->bb']);
+          });
+
+
+          it('should fulfill with the original value (larger test)',
+              function() {
+            var promise = createPromise();
+            promise.then(success('A', 'a'), error('A'));
+            promise['finally'](fin('B', 'b'), error('B')).
+                    then(success('BB', 'bb'), error('BB'));
+            promise.then(success('C', 'c'), error('C'))['finally'](fin('CC', 'IGNORED'))
+                   .then(success('CCC', 'cc'), error('CCC'))
+                   .then(success('CCCC', 'ccc'), error('CCCC'));
+            resolve('RESOLVED_VAL');
+            mockNextTick.flush();
+
+            expect(log).toEqual(['successA(RESOLVED_VAL)->a',
+                                 'finallyB()->b',
+                                 'successC(RESOLVED_VAL)->c',
+                                 'finallyCC()->IGNORED',
+                                 'successBB(RESOLVED_VAL)->bb',
+                                 'successCCC(c)->cc',
+                                 'successCCCC(cc)->ccc']);
+          });
+
+          describe("when the callback returns a promise", function() {
+            describe("that is fulfilled", function() {
+              it("should fulfill with the original reason after that promise resolves",
+                function() {
+                var promise = createPromise();
+                var promise2 = createPromise();
+                resolve2('bar');
+
+                promise['finally'](fin(1, promise))
+                       .then(success(2));
+
+                resolve('foo');
+                mockNextTick.flush();
+
+                expect(logStr()).toBe('finally1()->{}; success2(foo)->foo');
+              });
+            });
+
+            describe("that is rejected", function() {
+              it("should reject with this new rejection reason",
+                  function() {
+                var promise = createPromise();
+                var promise2 = createPromise();
+                reject2('bar');
+                promise['finally'](fin(1, promise2))
+                       .then(success(2), error(1));
+                resolve('foo');
+                mockNextTick.flush();
+                expect(logStr()).toBe('finally1()->{}; error1(bar)->reject(bar)');
+              });
+            });
+
+          });
+
+          describe("when the callback throws an exception", function() {
+            it("should reject with this new exception", function() {
+              var promise = createPromise();
+              promise['finally'](fin(1, "exception", true))
+                     .then(success(1), error(2));
+              resolve('foo');
+              mockNextTick.flush();
+              expect(logStr()).toBe('finally1()->throw(exception); error2(exception)->reject(exception)');
+            });
+          });
+
+        });
+
+
+        describe("when the promise is rejected", function() {
+          it("should call the callback", function() {
+            var promise = createPromise();
+            promise['finally'](fin(1))
+                   .then(success(2), error(1));
+            reject('foo');
+            mockNextTick.flush();
+            expect(logStr()).toBe('finally1(); error1(foo)->reject(foo)');
+          });
+
+          it('should reject with the original reason', function() {
+            var promise = createPromise();
+            promise['finally'](fin(1), "hello")
+                   .then(success(2), error(2));
+            reject('original');
+            mockNextTick.flush();
+            expect(logStr()).toBe('finally1(); error2(original)->reject(original)');
+          });
+
+          describe("when the callback returns a promise", function() {
+            describe("that is fulfilled", function() {
+              it("should reject with the original reason after that promise resolves", function() {
+                var promise = createPromise();
+                var promise2 = createPromise();
+                resolve2('bar');
+                promise['finally'](fin(1, promise2))
+                       .then(success(2), error(2));
+                reject('original');
+                mockNextTick.flush();
+                expect(logStr()).toBe('finally1()->{}; error2(original)->reject(original)');
+              });
+            });
+
+            describe("that is rejected", function() {
+              it("should reject with the new reason", function() {
+                var promise = createPromise();
+                var promise2 = createPromise();
+                reject2('bar');
+                promise['finally'](fin(1, promise2))
+                       .then(success(2), error(1));
+                resolve('foo');
+                mockNextTick.flush();
+                expect(logStr()).toBe('finally1()->{}; error1(bar)->reject(bar)');
+              });
+            });
+          });
+
+          describe("when the callback throws an exception", function() {
+            it("should reject with this new exception", function() {
+              var promise = createPromise();
+              promise['finally'](fin(1, "exception", true))
+                     .then(success(1), error(2));
+              resolve('foo');
+              mockNextTick.flush();
+              expect(logStr()).toBe('finally1()->throw(exception); error2(exception)->reject(exception)');
+            });
+          });
+        });
+      });
+
+      describe('catch', function() {
+        it('should be a shorthand for defining promise error handlers', function() {
+          var promise = createPromise();
+          promise['catch'](error(1)).then(null, error(2));
+          reject('foo');
+          mockNextTick.flush();
+          expect(logStr()).toBe('error1(foo)->reject(foo); error2(foo)->reject(foo)');
+        });
+      });
+    });
   });
 
 
@@ -213,6 +812,20 @@ describe('q', function() {
         deferred.resolve('foo');
         mockNextTick.flush();
         expect(logStr()).toBe('success1(foo)->foo; success2(foo)->foo');
+      });
+
+
+      it('should complain if promise fulfilled with itself', function() {
+        var resolveSpy = jasmine.createSpy('resolve');
+        var rejectSpy = jasmine.createSpy('reject');
+        promise.then(resolveSpy, rejectSpy);
+        deferred.resolve(deferred.promise);
+        mockNextTick.flush();
+
+        expect(resolveSpy).not.toHaveBeenCalled();
+        expect(rejectSpy).toHaveBeenCalled();
+        expect(rejectSpy.calls[0].args[0].message).
+            toMatch(/\[\$q\:qcycle\] Expected promise to be resolved with value other than itself/);
       });
 
 
@@ -253,7 +866,6 @@ describe('q', function() {
         promise.then(success(), error());
 
         deferred.resolve(deferred2.promise);
-        mockNextTick.flush();
         expect(logStr()).toBe('');
 
         deferred2.resolve('foo');
@@ -343,7 +955,7 @@ describe('q', function() {
         expect(mockNextTick.queue.length).toBe(0);
         expect(logStr()).toBe('');
 
-        promise.then(success(2), error(2))
+        promise.then(success(2), error(2));
         expect(logStr()).toBe('');
         mockNextTick.flush();
         expect(logStr()).toBe('success2(foo)->foo');
@@ -364,7 +976,7 @@ describe('q', function() {
         expect(mockNextTick.queue.length).toBe(0);
         expect(logStr()).toBe('');
 
-        promise.then(success(2), error(2))
+        promise.then(success(2), error(2));
         expect(logStr()).toBe('');
         mockNextTick.flush();
         expect(logStr()).toBe('error2(foo)->reject(foo)');
@@ -442,7 +1054,7 @@ describe('q', function() {
         log = [];
         deferred.reject('bar');
         deferred.resolve('baz');
-        deferred.notify('qux')
+        deferred.notify('qux');
         expect(mockNextTick.queue.length).toBe(0);
         expect(logStr()).toBe('');
 
@@ -494,7 +1106,7 @@ describe('q', function() {
       });
 
 
-      it("should not save and re-emit progress notifications between ticks", function () {
+      it("should not save and re-emit progress notifications between ticks", function() {
         promise.then(success(1), error(1), progress(1));
         deferred.notify('foo');
         deferred.notify('bar');
@@ -769,16 +1381,16 @@ describe('q', function() {
 
         it('should not take an argument',
             function() {
-          promise['finally'](fin(1))
+          promise['finally'](fin(1));
           syncResolve(deferred, 'foo');
           expect(logStr()).toBe('finally1()');
         });
 
-        describe("when the promise is fulfilled", function () {
+        describe("when the promise is fulfilled", function() {
 
           it('should call the callback',
               function() {
-            promise.then(success(1))['finally'](fin(1))
+            promise.then(success(1))['finally'](fin(1));
             syncResolve(deferred, 'foo');
             expect(logStr()).toBe('success1(foo)->foo; finally1()');
           });
@@ -800,14 +1412,14 @@ describe('q', function() {
                     then(success('BB', 'bb'), error('BB'));
             promise.then(success('C', 'c'), error('C'))['finally'](fin('CC', 'IGNORED'))
                    .then(success('CCC', 'cc'), error('CCC'))
-                   .then(success('CCCC', 'ccc'), error('CCCC'))
+                   .then(success('CCCC', 'ccc'), error('CCCC'));
             syncResolve(deferred, 'RESOLVED_VAL');
 
             expect(log).toEqual(['successA(RESOLVED_VAL)->a',
                                  'finallyB()->b',
                                  'successC(RESOLVED_VAL)->c',
-                                 'successBB(RESOLVED_VAL)->bb',
                                  'finallyCC()->IGNORED',
+                                 'successBB(RESOLVED_VAL)->bb',
                                  'successCCC(c)->cc',
                                  'successCCCC(cc)->ccc']);
           });
@@ -816,13 +1428,13 @@ describe('q', function() {
 
             describe("that is fulfilled", function() {
               it("should fulfill with the original reason after that promise resolves",
-                function () {
+                function() {
 
                 var returnedDef = defer();
                 returnedDef.resolve('bar');
 
                 promise['finally'](fin(1, returnedDef.promise))
-                       .then(success(2))
+                       .then(success(2));
 
                 syncResolve(deferred, 'foo');
 
@@ -832,11 +1444,11 @@ describe('q', function() {
 
             describe("that is rejected", function() {
               it("should reject with this new rejection reason",
-                function () {
-                var returnedDef = defer()
+                function() {
+                var returnedDef = defer();
                 returnedDef.reject('bar');
                 promise['finally'](fin(1, returnedDef.promise))
-                       .then(success(2), error(1))
+                       .then(success(2), error(1));
                 syncResolve(deferred, 'foo');
                 expect(logStr()).toBe('finally1()->{}; error1(bar)->reject(bar)');
               });
@@ -847,7 +1459,7 @@ describe('q', function() {
           describe("when the callback throws an exception", function() {
             it("should reject with this new exception", function() {
               promise['finally'](fin(1, "exception", true))
-                     .then(success(1), error(2))
+                     .then(success(1), error(2));
               syncResolve(deferred, 'foo');
               expect(logStr()).toBe('finally1()->throw(exception); error2(exception)->reject(exception)');
             });
@@ -856,18 +1468,18 @@ describe('q', function() {
         });
 
 
-        describe("when the promise is rejected", function () {
+        describe("when the promise is rejected", function() {
 
-          it("should call the callback", function () {
+          it("should call the callback", function() {
             promise['finally'](fin(1))
-                   .then(success(2), error(1))
+                   .then(success(2), error(1));
             syncReject(deferred, 'foo');
             expect(logStr()).toBe('finally1(); error1(foo)->reject(foo)');
           });
 
           it('should reject with the original reason', function() {
             promise['finally'](fin(1), "hello")
-                   .then(success(2), error(2))
+                   .then(success(2), error(2));
             syncReject(deferred, 'original');
             expect(logStr()).toBe('finally1(); error2(original)->reject(original)');
           });
@@ -876,24 +1488,24 @@ describe('q', function() {
 
             describe("that is fulfilled", function() {
 
-              it("should reject with the original reason after that promise resolves", function () {
-                var returnedDef = defer()
+              it("should reject with the original reason after that promise resolves", function() {
+                var returnedDef = defer();
                 returnedDef.resolve('bar');
                 promise['finally'](fin(1, returnedDef.promise))
-                       .then(success(2), error(2))
+                       .then(success(2), error(2));
                 syncReject(deferred, 'original');
                 expect(logStr()).toBe('finally1()->{}; error2(original)->reject(original)');
               });
 
             });
 
-            describe("that is rejected", function () {
+            describe("that is rejected", function() {
 
               it("should reject with the new reason", function() {
-                var returnedDef = defer()
+                var returnedDef = defer();
                 returnedDef.reject('bar');
                 promise['finally'](fin(1, returnedDef.promise))
-                       .then(success(2), error(1))
+                       .then(success(2), error(1));
                 syncResolve(deferred, 'foo');
                 expect(logStr()).toBe('finally1()->{}; error1(bar)->reject(bar)');
               });
@@ -906,7 +1518,7 @@ describe('q', function() {
 
             it("should reject with this new exception", function() {
               promise['finally'](fin(1, "exception", true))
-                     .then(success(1), error(2))
+                     .then(success(1), error(2));
               syncResolve(deferred, 'foo');
               expect(logStr()).toBe('finally1()->throw(exception); error2(exception)->reject(exception)');
             });
@@ -918,7 +1530,7 @@ describe('q', function() {
 
       describe('catch', function() {
         it('should be a shorthand for defining promise error handlers', function() {
-          promise['catch'](error(1)).then(null, error(2))
+          promise['catch'](error(1)).then(null, error(2));
           syncReject(deferred, 'foo');
           expect(logStr()).toBe('error1(foo)->reject(foo); error2(foo)->reject(foo)');
         });
@@ -937,7 +1549,7 @@ describe('q', function() {
 
 
     it('should package an exception into a rejected promise', function() {
-      var rejectedPromise = q.reject(Error('not gonna happen'));
+      var rejectedPromise = q.reject(new Error('not gonna happen'));
       promise.then(success(), error());
       syncResolve(deferred, rejectedPromise);
       expect(log).toEqual(['error(Error: not gonna happen)->reject(Error: not gonna happen)']);
@@ -955,9 +1567,16 @@ describe('q', function() {
     it('should catch exceptions thrown in errback and forward them to derived promises', function() {
       var rejectedPromise = q.reject('rejected');
       rejectedPromise.then(null, error('Broken', 'catch me!', true)).
-                      then(null, error('Affected'))
+                      then(null, error('Affected'));
       mockNextTick.flush();
       expect(log).toEqual(['errorBroken(rejected)->throw(catch me!)', 'errorAffected(catch me!)->reject(catch me!)']);
+    });
+
+
+    it('should have functions `finally` and `catch`', function() {
+      var rejectedPromise = q.reject('rejected');
+      expect(rejectedPromise['finally']).not.toBeUndefined();
+      expect(rejectedPromise['catch']).not.toBeUndefined();
     });
   });
 
@@ -996,18 +1615,16 @@ describe('q', function() {
           function() {
         q.when(deferred.promise, success(), error());
         expect(logStr()).toBe('');
-        mockNextTick.flush();
         expect(logStr()).toBe('');
         syncResolve(deferred, 'hello');
         expect(logStr()).toBe('success(hello)->hello');
       });
 
 
-      it('should call the errback after the orignal promise is rejected',
+      it('should call the errback after the original promise is rejected',
           function() {
         q.when(deferred.promise, success(), error());
         expect(logStr()).toBe('');
-        mockNextTick.flush();
         expect(logStr()).toBe('');
         syncReject(deferred, 'nope');
         expect(logStr()).toBe('error(nope)->reject(nope)');
@@ -1019,7 +1636,6 @@ describe('q', function() {
       it('should call the progressback when the value is a promise and gets notified',
           function() {
         q.when(deferred.promise, success(), error(), progress());
-        mockNextTick.flush();
         expect(logStr()).toBe('');
         syncNotify(deferred, 'notification');
         expect(logStr()).toBe('progress(notification)->notification');
@@ -1063,7 +1679,6 @@ describe('q', function() {
       it('should not require progressback and propagate notification', function() {
         q.when(deferred.promise).
           then(success(), error(), progress());
-        mockNextTick.flush();
         expect(logStr()).toBe('');
         syncNotify(deferred, 'notification');
         expect(logStr()).toBe('progress(notification)->notification');
@@ -1128,7 +1743,7 @@ describe('q', function() {
 
 
     describe('security', function() {
-      it('should call success callback only once even if the original promise gets fullfilled ' +
+      it('should call success callback only once even if the original promise gets fulfilled ' +
           'multiple times', function() {
         var evilPromise = {
           then: function(success, error, progress) {
@@ -1139,7 +1754,6 @@ describe('q', function() {
         };
 
         q.when(evilPromise, success(), error());
-        mockNextTick.flush();
         expect(logStr()).toBe('');
         evilPromise.success('done');
         mockNextTick.flush(); // TODO(i) wrong queue, evil promise would be resolved outside of the
@@ -1154,7 +1768,7 @@ describe('q', function() {
       });
 
 
-      it('should call errback only once even if the original promise gets fullfilled multiple ' +
+      it('should call errback only once even if the original promise gets fulfilled multiple ' +
           'times', function() {
         var evilPromise = {
           then: function(success, error, progress) {
@@ -1165,9 +1779,9 @@ describe('q', function() {
         };
 
         q.when(evilPromise, success(), error());
-        mockNextTick.flush();
         expect(logStr()).toBe('');
         evilPromise.error('failed');
+        mockNextTick.flush();
         expect(logStr()).toBe('error(failed)->reject(failed)');
 
         evilPromise.error('muhaha');
@@ -1176,7 +1790,7 @@ describe('q', function() {
       });
 
 
-      it('should not call progressback after promise gets fullfilled, even if original promise ' +
+      it('should not call progressback after promise gets fulfilled, even if original promise ' +
           'gets notified multiple times', function() {
         var evilPromise = {
           then: function(success, error, progress) {
@@ -1187,7 +1801,6 @@ describe('q', function() {
         };
 
         q.when(evilPromise, success(), error(), progress());
-        mockNextTick.flush();
         expect(logStr()).toBe('');
         evilPromise.progress('notification');
         evilPromise.success('ok');
@@ -1348,13 +1961,13 @@ describe('q', function() {
       logger: function(e) {
         mockExceptionLogger.log.push(e);
       }
-    }
+    };
 
 
     beforeEach(function() {
       q = qFactory(mockNextTick.nextTick, mockExceptionLogger.logger),
       defer = q.defer;
-      deferred =  defer()
+      deferred =  defer();
       promise = deferred.promise;
       log = [];
       mockExceptionLogger.log = [];
@@ -1406,7 +2019,8 @@ describe('q', function() {
           log = [];
           syncResolve(deferred, 'ok');
           expect(logStr()).toBe('success(ok)->ok');
-      });
+        }
+      );
     });
 
 

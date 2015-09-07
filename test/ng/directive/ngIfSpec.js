@@ -1,37 +1,49 @@
 'use strict';
 
-describe('ngIf', function () {
+describe('ngIf', function() {
   var $scope, $compile, element, $compileProvider;
 
   beforeEach(module(function(_$compileProvider_) {
     $compileProvider = _$compileProvider_;
   }));
-  beforeEach(inject(function ($rootScope, _$compile_) {
+  beforeEach(inject(function($rootScope, _$compile_) {
     $scope = $rootScope.$new();
     $compile = _$compile_;
     element = $compile('<div></div>')($scope);
   }));
 
-  afterEach(function () {
+  afterEach(function() {
     dealoc(element);
   });
 
-  function makeIf(expr) {
-    element.append($compile('<div class="my-class" ng-if="' + expr + '"><div>Hi</div></div>')($scope));
+  function makeIf() {
+    forEach(arguments, function(expr) {
+      element.append($compile('<div class="my-class" ng-if="' + expr + '"><div>Hi</div></div>')($scope));
+    });
     $scope.$apply();
   }
 
-  it('should immediately remove element if condition is false', function () {
-    makeIf('false');
+  it('should immediately remove the element if condition is falsy', function() {
+    makeIf('false', 'undefined', 'null', 'NaN', '\'\'', '0');
     expect(element.children().length).toBe(0);
   });
 
-  it('should leave the element if condition is true', function () {
+  it('should leave the element if condition is true', function() {
     makeIf('true');
     expect(element.children().length).toBe(1);
   });
 
-  it('should not add the element twice if the condition goes from true to true', function () {
+  it('should leave the element if the condition is a non-empty string', function() {
+    makeIf('\'f\'', '\'0\'', '\'false\'', '\'no\'', '\'n\'', '\'[]\'');
+    expect(element.children().length).toBe(6);
+  });
+
+  it('should leave the element if the condition is an object', function() {
+    makeIf('[]', '{}');
+    expect(element.children().length).toBe(2);
+  });
+
+  it('should not add the element twice if the condition goes from true to true', function() {
     $scope.hello = 'true1';
     makeIf('hello');
     expect(element.children().length).toBe(1);
@@ -39,7 +51,7 @@ describe('ngIf', function () {
     expect(element.children().length).toBe(1);
   });
 
-  it('should not recreate the element if the condition goes from true to true', function () {
+  it('should not recreate the element if the condition goes from true to true', function() {
     $scope.hello = 'true1';
     makeIf('hello');
     element.children().data('flag', true);
@@ -47,7 +59,7 @@ describe('ngIf', function () {
     expect(element.children().data('flag')).toBe(true);
   });
 
-  it('should create then remove the element if condition changes', function () {
+  it('should create then remove the element if condition changes', function() {
     $scope.hello = true;
     makeIf('hello');
     expect(element.children().length).toBe(1);
@@ -55,7 +67,7 @@ describe('ngIf', function () {
     expect(element.children().length).toBe(0);
   });
 
-  it('should create a new scope every time the expression evaluates to true', function () {
+  it('should create a new scope every time the expression evaluates to true', function() {
     $scope.$apply('value = true');
     element.append($compile(
       '<div ng-if="value"><span ng-init="value=false"></span></div>'
@@ -84,7 +96,7 @@ describe('ngIf', function () {
     expect(destroyed).toBe(true);
   });
 
-  it('should play nice with other elements beside it', function () {
+  it('should play nice with other elements beside it', function() {
     $scope.values = [1, 2, 3, 4];
     element.append($compile(
       '<div ng-repeat="i in values"></div>' +
@@ -199,18 +211,40 @@ describe('ngIf and transcludes', function() {
       dealoc(element);
     });
   });
+
+
+  it('should use the correct transcluded scope', function() {
+    module(function($compileProvider) {
+      $compileProvider.directive('iso', valueFn({
+        link: function(scope) {
+          scope.val = 'value in iso scope';
+        },
+        restrict: 'E',
+        transclude: true,
+        template: '<div ng-if="true">val={{val}}-<div ng-transclude></div></div>',
+        scope: {}
+      }));
+    });
+    inject(function($compile, $rootScope) {
+      $rootScope.val = 'transcluded content';
+      var element = $compile('<iso><span ng-bind="val"></span></iso>')($rootScope);
+      $rootScope.$digest();
+      expect(trim(element.text())).toEqual('val=value in iso scope-transcluded content');
+      dealoc(element);
+    });
+  });
 });
 
-describe('ngIf animations', function () {
+describe('ngIf animations', function() {
   var body, element, $rootElement;
 
-  function html(html) {
-    $rootElement.html(html);
+  function html(content) {
+    $rootElement.html(content);
     element = $rootElement.children().eq(0);
     return element;
   }
 
-  beforeEach(module('mock.animate'));
+  beforeEach(module('ngAnimateMock'));
 
   beforeEach(module(function() {
     // we need to run animation on attached elements;
@@ -221,7 +255,7 @@ describe('ngIf animations', function () {
     };
   }));
 
-  afterEach(function(){
+  afterEach(function() {
     dealoc(body);
     dealoc(element);
   });
@@ -245,14 +279,16 @@ describe('ngIf animations', function () {
       $rootScope.$digest();
       $scope.$apply('value = true');
 
-      item = $animate.flushNext('enter').element;
-      expect(item.text()).toBe('Hi');
+      item = $animate.queue.shift();
+      expect(item.event).toBe('enter');
+      expect(item.element.text()).toBe('Hi');
 
       expect(element.children().length).toBe(1);
-  }));
+    })
+  );
 
   it('should fire off the leave animation',
-    inject(function ($compile, $rootScope, $animate) {
+    inject(function($compile, $rootScope, $animate) {
       var item;
       var $scope = $rootScope.$new();
       element = $compile(html(
@@ -262,16 +298,74 @@ describe('ngIf animations', function () {
       ))($scope);
       $scope.$apply('value = true');
 
-      item = $animate.flushNext('enter').element;
-      expect(item.text()).toBe('Hi');
+      item = $animate.queue.shift();
+      expect(item.event).toBe('enter');
+      expect(item.element.text()).toBe('Hi');
 
-      $scope.$apply('value = false');
       expect(element.children().length).toBe(1);
+      $scope.$apply('value = false');
 
-      item = $animate.flushNext('leave').element;
-      expect(item.text()).toBe('Hi');
+      item = $animate.queue.shift();
+      expect(item.event).toBe('leave');
+      expect(item.element.text()).toBe('Hi');
 
       expect(element.children().length).toBe(0);
-  }));
+    })
+  );
 
+  it('should destroy the previous leave animation if a new one takes place', function() {
+    module(function($provide) {
+      $provide.decorator('$animate', function($delegate, $$q) {
+        var emptyPromise = $$q.defer().promise;
+        $delegate.leave = function() {
+          return emptyPromise;
+        };
+        return $delegate;
+      });
+    });
+    inject(function($compile, $rootScope, $animate) {
+      var item;
+      var $scope = $rootScope.$new();
+      element = $compile(html(
+        '<div>' +
+          '<div ng-if="value">Yo</div>' +
+        '</div>'
+      ))($scope);
+
+      $scope.$apply('value = true');
+
+      var destroyed, inner = element.children(0);
+      inner.on('$destroy', function() {
+        destroyed = true;
+      });
+
+      $scope.$apply('value = false');
+
+      $scope.$apply('value = true');
+
+      $scope.$apply('value = false');
+
+      expect(destroyed).toBe(true);
+    });
+  });
+
+  it('should work with svg elements when the svg container is transcluded', function() {
+    module(function($compileProvider) {
+      $compileProvider.directive('svgContainer', function() {
+        return {
+          template: '<svg ng-transclude></svg>',
+          replace: true,
+          transclude: true
+        };
+      });
+    });
+    inject(function($compile, $rootScope) {
+      element = $compile('<svg-container><circle ng-if="flag"></circle></svg-container>')($rootScope);
+      $rootScope.flag = true;
+      $rootScope.$apply();
+
+      var circle = element.find('circle');
+      expect(circle[0].toString()).toMatch(/SVG/);
+    });
+  });
 });

@@ -1,3 +1,5 @@
+'use strict';
+
 beforeEach(function() {
 
   function cssMatcher(presentClasses, absentClasses) {
@@ -6,54 +8,54 @@ beforeEach(function() {
       var present = true;
       var absent = false;
 
-      angular.forEach(presentClasses.split(' '), function(className){
+      angular.forEach(presentClasses.split(' '), function(className) {
         present = present && element.hasClass(className);
       });
 
-      angular.forEach(absentClasses.split(' '), function(className){
+      angular.forEach(absentClasses.split(' '), function(className) {
         absent = absent || element.hasClass(className);
       });
 
       this.message = function() {
         return "Expected to have " + presentClasses +
-          (absentClasses ? (" and not have " + absentClasses + "" ) : "") +
+          (absentClasses ? (" and not have " + absentClasses + "") : "") +
           " but had " + element[0].className + ".";
       };
       return present && !absent;
     };
   }
 
-  function indexOf(array, obj) {
-    for ( var i = 0; i < array.length; i++) {
-      if (obj === array[i]) return i;
-    }
-    return -1;
-  }
-
   function isNgElementHidden(element) {
     // we need to check element.getAttribute for SVG nodes
     var hidden = true;
-    forEach(angular.element(element), function (element) {
-      if ((' ' +(element.getAttribute('class') || '') + ' ').indexOf(' ng-hide ') === -1) {
+    forEach(angular.element(element), function(element) {
+      if ((' '  + (element.getAttribute('class') || '') + ' ').indexOf(' ng-hide ') === -1) {
         hidden = false;
       }
     });
     return hidden;
-  };
+  }
 
   this.addMatchers({
     toBeInvalid: cssMatcher('ng-invalid', 'ng-valid'),
     toBeValid: cssMatcher('ng-valid', 'ng-invalid'),
     toBeDirty: cssMatcher('ng-dirty', 'ng-pristine'),
     toBePristine: cssMatcher('ng-pristine', 'ng-dirty'),
+    toBeUntouched: cssMatcher('ng-untouched', 'ng-touched'),
+    toBeTouched: cssMatcher('ng-touched', 'ng-untouched'),
+    toBeAPromise: function() {
+      this.message = valueFn(
+          "Expected object " + (this.isNot ? "not " : "") + "to be a promise");
+      return isPromiseLike(this.actual);
+    },
     toBeShown: function() {
       this.message = valueFn(
-          "Expected element " + (this.isNot ? "": "not ") + "to have 'ng-hide' class");
+          "Expected element " + (this.isNot ? "" : "not ") + "to have 'ng-hide' class");
       return !isNgElementHidden(this.actual);
     },
     toBeHidden: function() {
       this.message = valueFn(
-          "Expected element " + (this.isNot ? "not ": "") + "to have 'ng-hide' class");
+          "Expected element " + (this.isNot ? "not " : "") + "to have 'ng-hide' class");
       return isNgElementHidden(this.actual);
     },
 
@@ -128,7 +130,7 @@ beforeEach(function() {
 
       this.message = function() {
         if (this.actual.callCount != 1) {
-          if (this.actual.callCount == 0) {
+          if (this.actual.callCount === 0) {
             return [
               'Expected spy ' + this.actual.identity + ' to have been called once with ' +
                 jasmine.pp(expectedArgs) + ' but it was never called.',
@@ -158,16 +160,20 @@ beforeEach(function() {
 
 
     toBeOneOf: function() {
-      return indexOf(arguments, this.actual) !== -1;
+      return Array.prototype.indexOf.call(arguments, this.actual) !== -1;
     },
 
     toHaveClass: function(clazz) {
       this.message = function() {
         return "Expected '" + angular.mock.dump(this.actual) + "' to have class '" + clazz + "'.";
       };
-      return this.actual.hasClass ?
-              this.actual.hasClass(clazz) :
-              angular.element(this.actual).hasClass(clazz);
+      var classes = clazz.trim().split(/\s+/);
+      for (var i = 0; i < classes.length; ++i) {
+        if (!jqLiteHasClass(this.actual[0], classes[i])) {
+          return false;
+        }
+      }
+      return true;
     },
 
     toThrowMatching: function(expected) {
@@ -178,7 +184,7 @@ beforeEach(function() {
       var result,
         exception,
         exceptionMessage = '',
-        escapeRegexp = function (str) {
+        escapeRegexp = function(str) {
           // This function escapes all special regex characters.
           // We use it to create matching regex from arbitrary strings.
           // http://stackoverflow.com/questions/3446170/escape-string-for-use-in-javascript-regex
@@ -189,7 +195,7 @@ beforeEach(function() {
         regex = jasmine.isA_("RegExp", content) ? content :
                   angular.isDefined(content) ? new RegExp(escapeRegexp(content)) : undefined;
 
-      if(!angular.isFunction(this.actual)) {
+      if (!angular.isFunction(this.actual)) {
         throw new Error('Actual is not a function');
       }
 
@@ -203,7 +209,7 @@ beforeEach(function() {
         exceptionMessage = exception.message || exception;
       }
 
-      this.message = function () {
+      this.message = function() {
         return "Expected function " + not + "to throw " +
           namespace + "MinErr('" + code + "')" +
           (regex ? " matching " + regex.toString() : "") +

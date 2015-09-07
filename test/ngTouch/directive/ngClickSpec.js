@@ -5,8 +5,8 @@ describe('ngClick (touch)', function() {
 
   // TODO(braden): Once we have other touch-friendly browsers on CI, allow them here.
   // Currently Firefox and IE refuse to fire touch events.
-  var chrome = /chrome/.test(navigator.userAgent.toLowerCase());
-  if (!chrome) {
+  // Enable iPhone for manual testing.
+  if (!/chrome|iphone/i.test(navigator.userAgent)) {
     return;
   }
 
@@ -47,6 +47,34 @@ describe('ngClick (touch)', function() {
     browserTrigger(element, 'touchend');
     expect($rootScope.event).toBeDefined();
   }));
+
+  if (window.jQuery) {
+    it('should not unwrap a jQuery-wrapped event object on click', inject(function($rootScope, $compile) {
+      element = $compile('<div ng-click="event = $event"></div>')($rootScope);
+      $rootScope.$digest();
+
+      browserTrigger(element, 'click', {
+        keys: [],
+        x: 10,
+        y: 10
+      });
+      expect($rootScope.event.originalEvent).toBeDefined();
+      expect($rootScope.event.originalEvent.clientX).toBe(10);
+      expect($rootScope.event.originalEvent.clientY).toBe(10);
+    }));
+
+    it('should not unwrap a jQuery-wrapped event object on touchstart/touchend',
+        inject(function($rootScope, $compile, $rootElement) {
+      element = $compile('<div ng-click="event = $event"></div>')($rootScope);
+      $rootElement.append(element);
+      $rootScope.$digest();
+
+      browserTrigger(element, 'touchstart');
+      browserTrigger(element, 'touchend');
+
+      expect($rootScope.event.originalEvent).toBeDefined();
+    }));
+  }
 
 
   it('should not click if the touch is held too long', inject(function($rootScope, $compile, $rootElement) {
@@ -370,40 +398,111 @@ describe('ngClick (touch)', function() {
     }));
 
 
-    it('should not cancel clicks that come long after', inject(function($rootScope, $compile) {
-      element1 = $compile('<div ng-click="count = count + 1"></div>')($rootScope);
+    describe('when clicking on a label immediately following a touch event', function() {
+      var touch = function(element, x, y) {
+        time = 10;
+        browserTrigger(element, 'touchstart',{
+          keys: [],
+          x: x,
+          y: y
+        });
 
-      $rootScope.count = 0;
+        time = 50;
+        browserTrigger(element, 'touchend',{
+          keys: [],
+          x: x,
+          y: y
+        });
+      };
 
-      $rootScope.$digest();
+      var click = function(element, x, y) {
+        browserTrigger(element, 'click',{
+          keys: [],
+          x: x,
+          y: y
+        });
+      };
 
-      expect($rootScope.count).toBe(0);
+      var $rootScope;
+      var container, otherElement, input, label;
+      beforeEach(inject(function(_$rootScope_, $compile, $rootElement) {
+        $rootScope = _$rootScope_;
+        var container = $compile('<div><div ng-click="count = count + 1"></div>' +
+          '<input id="input1" type="radio" ng-model="selection" value="radio1">' +
+          '<label for="input1">Input1</label></div>')($rootScope);
+        $rootElement.append(container);
+        otherElement = container.children()[0];
+        input = container.children()[1];
+        label = container.children()[2];
 
-      time = 10;
-      browserTrigger(element1, 'touchstart',{
-        keys: [],
-        x: 10,
-        y: 10
+        $rootScope.selection = 'initial';
+
+        $rootScope.$digest();
+      }));
+
+
+      afterEach(function() {
+        dealoc(label);
+        dealoc(input);
+        dealoc(otherElement);
+        dealoc(container);
       });
 
-      time = 50;
-      browserTrigger(element1, 'touchend',{
-        keys: [],
-        x: 10,
-        y: 10
+
+      it('should not cancel input clicks with (0,0) coordinates', function() {
+        touch(otherElement, 100, 100);
+
+        time = 500;
+        click(label, 10, 10);
+        click(input, 0, 0);
+
+        expect($rootScope.selection).toBe('radio1');
       });
 
-      expect($rootScope.count).toBe(1);
 
-      time = 2700;
-      browserTrigger(element1, 'click',{
-        keys: [],
-        x: 10,
-        y: 10
+      it('should not cancel input clicks with negative coordinates', function() {
+        touch(otherElement, 100, 100);
+
+        time = 500;
+        click(label, 10, 10);
+        click(input, -1, -1);
+
+        expect($rootScope.selection).toBe('radio1');
       });
 
-      expect($rootScope.count).toBe(2);
-    }));
+
+      it('should not cancel input clicks with positive coordinates identical to label click', function() {
+        touch(otherElement, 100, 100);
+
+        time = 500;
+        click(label, 10, 10);
+        click(input, 10, 10);
+
+        expect($rootScope.selection).toBe('radio1');
+      });
+
+
+      it('should cancel input clicks with positive coordinates different than label click', function() {
+        touch(otherElement, 100, 100);
+
+        time = 500;
+        click(label, 10, 10);
+        click(input, 11, 11);
+
+        expect($rootScope.selection).toBe('initial');
+      });
+
+
+      it('should blur the other element on click', function() {
+        var blurSpy = spyOn(otherElement, 'blur');
+        touch(otherElement, 10, 10);
+
+        time = 500;
+        click(label, 10, 10);
+
+        expect(blurSpy).toHaveBeenCalled();
+      });
+    });
   });
 
 

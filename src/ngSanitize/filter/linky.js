@@ -4,8 +4,8 @@
 
 /**
  * @ngdoc filter
- * @name ngSanitize.filter:linky
- * @function
+ * @name linky
+ * @kind function
  *
  * @description
  * Finds links in text input and turns them into html links. Supports http/https/ftp/mailto and
@@ -21,20 +21,21 @@
    <span ng-bind-html="linky_expression | linky"></span>
  *
  * @example
-   <doc:example module="ngSanitize">
-     <doc:source>
+   <example module="linkyExample" deps="angular-sanitize.js">
+     <file name="index.html">
        <script>
-         function Ctrl($scope) {
-           $scope.snippet =
-             'Pretty text with some links:\n'+
-             'http://angularjs.org/,\n'+
-             'mailto:us@somewhere.org,\n'+
-             'another@somewhere.org,\n'+
-             'and one more: ftp://127.0.0.1/.';
-           $scope.snippetWithTarget = 'http://angularjs.org/';
-         }
+         angular.module('linkyExample', ['ngSanitize'])
+           .controller('ExampleController', ['$scope', function($scope) {
+             $scope.snippet =
+               'Pretty text with some links:\n'+
+               'http://angularjs.org/,\n'+
+               'mailto:us@somewhere.org,\n'+
+               'another@somewhere.org,\n'+
+               'and one more: ftp://127.0.0.1/.';
+             $scope.snippetWithTarget = 'http://angularjs.org/';
+           }]);
        </script>
-       <div ng-controller="Ctrl">
+       <div ng-controller="ExampleController">
        Snippet: <textarea ng-model="snippet" cols="60" rows="3"></textarea>
        <table>
          <tr>
@@ -66,8 +67,8 @@
            <td><div ng-bind="snippet"></div></td>
          </tr>
        </table>
-     </doc:source>
-     <doc:protractor>
+     </file>
+     <file name="protractor.js" type="protractor">
        it('should linkify the snippet with urls', function() {
          expect(element(by.id('linky-filter')).element(by.binding('snippet | linky')).getText()).
              toBe('Pretty text with some links: http://angularjs.org/, us@somewhere.org, ' +
@@ -98,12 +99,12 @@
             toBe('http://angularjs.org/');
         expect(element(by.css('#linky-target a')).getAttribute('target')).toEqual('_blank');
        });
-     </doc:protractor>
-   </doc:example>
+     </file>
+   </example>
  */
 angular.module('ngSanitize').filter('linky', ['$sanitize', function($sanitize) {
   var LINKY_URL_REGEXP =
-        /((ftp|https?):\/\/|(mailto:)?[A-Za-z0-9._%+-]+@)\S*[^\s.;,(){}<>]/,
+        /((ftp|https?):\/\/|(www\.)|(mailto:)?[A-Za-z0-9._%+-]+@)\S*[^\s.;,(){}<>"”’]/,
       MAILTO_REGEXP = /^mailto:/;
 
   return function(text, target) {
@@ -116,8 +117,10 @@ angular.module('ngSanitize').filter('linky', ['$sanitize', function($sanitize) {
     while ((match = raw.match(LINKY_URL_REGEXP))) {
       // We can not end in these as they are sometimes found at the end of the sentence
       url = match[0];
-      // if we did not match ftp/http/mailto then assume mailto
-      if (match[2] == match[3]) url = 'mailto:' + url;
+      // if we did not match ftp/http/www/mailto then assume mailto
+      if (!match[2] && !match[4]) {
+        url = (match[3] ? 'http://' : 'mailto:') + url;
+      }
       i = match.index;
       addText(raw.substr(0, i));
       addLink(url, match[0].replace(MAILTO_REGEXP, ''));
@@ -136,13 +139,13 @@ angular.module('ngSanitize').filter('linky', ['$sanitize', function($sanitize) {
     function addLink(url, text) {
       html.push('<a ');
       if (angular.isDefined(target)) {
-        html.push('target="');
-        html.push(target);
-        html.push('" ');
+        html.push('target="',
+                  target,
+                  '" ');
       }
-      html.push('href="');
-      html.push(url);
-      html.push('">');
+      html.push('href="',
+                url.replace(/"/g, '&quot;'),
+                '">');
       addText(text);
       html.push('</a>');
     }

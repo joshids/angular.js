@@ -3,7 +3,7 @@
 # Script for updating code.angularjs.org repo from current local build.
 
 echo "#################################"
-echo "## Update code.angular.js.org ###"
+echo "## Update code.angularjs.org ###"
 echo "#################################"
 
 ARG_DEFS=(
@@ -23,28 +23,26 @@ function init {
 }
 
 function prepare {
-  if [[  $IS_SNAPSHOT_BUILD ]]; then
-    # nothing to prepare for snapshot builds as
-    # code.angularjs.org will fetch the current snapshot from
-    # the build server during publish
-    exit 0
-  fi
 
   echo "-- Cloning code.angularjs.org"
-  git clone git@github.com:angular/code.angularjs.org.git $REPO_DIR
+  git clone git@github.com:angular/code.angularjs.org.git $REPO_DIR --depth=1
 
-  #
-  # copy the files from the build
-  #
   echo "-- Updating code.angularjs.org"
-  mkdir $REPO_DIR/$NEW_VERSION
-  cd $REPO_DIR
-  git reset --hard HEAD
-  git checkout master
-  git fetch --all
-  git reset --hard origin/master
-  cd $SCRIPT_DIR
-  cp -r $BUILD_DIR/* $REPO_DIR/$NEW_VERSION/
+
+  if [[  $IS_SNAPSHOT_BUILD ]]; then
+    #
+    # update the snapshot folder
+    #
+    rm -rf $REPO_DIR/snapshot
+    mkdir $REPO_DIR/snapshot
+    cp -r $BUILD_DIR/* $REPO_DIR/snapshot/
+  else
+    #
+    # copy the files from the build
+    #
+    mkdir $REPO_DIR/$NEW_VERSION
+    cp -r $BUILD_DIR/* $REPO_DIR/$NEW_VERSION/
+  fi
 
   #
   # commit
@@ -55,19 +53,25 @@ function prepare {
   git commit -m "v$NEW_VERSION"
 }
 
-function publish {
-  if [[  $IS_SNAPSHOT_BUILD ]]; then
-    echo "-- Updating snapshot version"
-    curl -G --data-urlencode "ver=$NEW_VERSION" http://code.angularjs.org/fetchLatestSnapshot.php
-    exit 0;
-  fi
 
+function _update_code() {
   cd $REPO_DIR
+
   echo "-- Pushing code.angularjs.org"
   git push origin master
 
-  echo "-- Refreshing code.angularjs.org"
-  curl http://code.angularjs.org/gitFetchSite.php
+  for backend in "$@" ; do
+    echo "-- Refreshing code.angularjs.org: backend=$backend"
+    curl http://$backend:8003/gitFetchSite.php
+  done
+}
+
+function publish {
+  # The TXT record for backends.angularjs.org is a CSV of the IP addresses for
+  # the currently serving Compute Engine backends.
+  # code.angularjs.org is served out of port 8003 on these backends.
+  backends=("$(dig backends.angularjs.org +short TXT | python -c 'print raw_input()[1:-1].replace(",", "\n")')")
+  _update_code ${backends[@]}
 }
 
 source $(dirname $0)/../utils.inc

@@ -7,7 +7,7 @@
 // exactly the behavior needed here.  There is little value is mocking these out for this
 // service.
 var urlParsingNode = document.createElement("a");
-var originUrl = urlResolve(window.location.href, true);
+var originUrl = urlResolve(window.location.href);
 
 
 /**
@@ -45,7 +45,7 @@ var originUrl = urlResolve(window.location.href, true);
  *   https://github.com/angular/angular.js/pull/2902
  *   http://james.padolsey.com/javascript/parsing-urls-with-the-dom/
  *
- * @function
+ * @kind function
  * @param {string} url The URL to be parsed.
  * @description Normalizes and parses a URL.
  * @returns {object} Returns the normalized URL as a dictionary.
@@ -62,7 +62,7 @@ var originUrl = urlResolve(window.location.href, true);
  *   | pathname      | The pathname, beginning with "/"
  *
  */
-function urlResolve(url, base) {
+function urlResolve(url) {
   var href = url;
 
   if (msie) {
